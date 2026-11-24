@@ -30,6 +30,7 @@ export function FinancialPage() {
   const [target, setTarget] = useState<any | null>(null);
   const [decision, setDecision] = useState<'approve' | 'decline' | 'defer'>('approve');
   const [amount, setAmount] = useState('');
+  const [amountError, setAmountError] = useState<string | null>(null);
   const [note, setNote] = useState('');
 
   const decide = useMutation({
@@ -61,6 +62,7 @@ export function FinancialPage() {
     setTarget(row);
     setDecision(value);
     setAmount(row.chosenAmount ? String(row.chosenAmount) : '');
+    setAmountError(null);
     setNote('');
   };
 
@@ -94,13 +96,13 @@ export function FinancialPage() {
       <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
         <button
           onClick={() => setTab('pending')}
-          className={cn('flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors', tab === 'pending' ? 'bg-white text-ink shadow-sm' : 'text-slate-500')}
+          className={cn('flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors', tab === 'pending' ? 'bg-surface text-ink shadow-sm' : 'text-slate-500')}
         >
           Pending decisions ({rows.length})
         </button>
         <button
           onClick={() => setTab('history')}
-          className={cn('flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors', tab === 'history' ? 'bg-white text-ink shadow-sm' : 'text-slate-500')}
+          className={cn('flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors', tab === 'history' ? 'bg-surface text-ink shadow-sm' : 'text-slate-500')}
         >
           Decision history ({history.length})
         </button>
@@ -251,13 +253,18 @@ export function FinancialPage() {
             <Button
               variant={decision === 'decline' ? 'danger' : decision === 'defer' ? 'outline' : 'success'}
               loading={decide.isPending}
-              onClick={() =>
+              onClick={() => {
+                if (decision === 'approve' && !(Number(amount) > 0)) {
+                  setAmountError('Enter the amount being approved.');
+                  return;
+                }
+                setAmountError(null);
                 decide.mutate({
                   decision,
                   approvedAmount: decision === 'approve' ? Number(amount) : undefined,
                   note: note.trim() || null,
-                })
-              }
+                });
+              }}
             >
               {decision === 'approve' ? 'Approve' : decision === 'decline' ? 'Decline and close items' : 'Defer and park items'}
             </Button>
@@ -266,8 +273,23 @@ export function FinancialPage() {
       >
         <div className="space-y-3">
           {decision === 'approve' ? (
-            <Field label="Approved amount (₦)" required hint="Taken from the chosen quotation unless amended here">
-              <Input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Field
+              label="Approved amount (₦)"
+              required
+              error={amountError ?? undefined}
+              hint="Taken from the chosen quotation unless amended here"
+            >
+              <Input
+                type="number"
+                min={1}
+                required
+                value={amount}
+                aria-invalid={!!amountError}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  setAmountError(null);
+                }}
+              />
             </Field>
           ) : null}
           <Field label="Note" hint="Recorded with the decision in the request history.">

@@ -44,7 +44,7 @@ import {
 export function RequestDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { hasRole } = useAuth();
+  const { can, hasRole } = useAuth();
   const { push } = useToast();
   const qc = useQueryClient();
 
@@ -152,7 +152,7 @@ export function RequestDetailPage() {
                 Stock check
               </Button>
             ) : null}
-            {lines.some((l: any) => l.quoteCount > 0) ? (
+            {can('quotations') && lines.some((l: any) => l.quoteCount > 0) ? (
               <Button variant="outline" onClick={() => navigate(`/quotations/${lines.find((l: any) => l.quoteCount > 0).id}`)} icon={<Quote className="h-4 w-4" />}>
                 Quotations
               </Button>

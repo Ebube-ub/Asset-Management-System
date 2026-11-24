@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-brand-50: #eef5fb;
   --color-brand-100: #d7e8f6;
@@ -14,11 +16,42 @@
   --color-ink: #172033;
   --color-muted: #7a8494;
   --color-canvas: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-line: #e8ecf3;
+  --color-chart-grid: #eef2f7;
+  --color-chart-axis: #7a8494;
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
 
+/*
+ * Dark theme: the neutral ramp is inverted so every existing slate/white
+ * surface, border and text utility flips without touching component markup.
+ * The brand ramp is left alone so the sidebar gradient and primary buttons
+ * keep their identity in both themes.
+ */
+.dark {
+  --color-canvas: #0b1118;
+  --color-ink: #e8eef6;
+  --color-surface: #121a24;
+  --color-line: #26313f;
+  --color-chart-grid: #1f2a37;
+  --color-chart-axis: #8b97a7;
+  --color-muted: #93a1b3;
+
+  --color-slate-50: #151d27;
+  --color-slate-100: #1c2632;
+  --color-slate-200: #26313f;
+  --color-slate-300: #39485a;
+  --color-slate-400: #6b7a8d;
+  --color-slate-500: #93a1b3;
+  --color-slate-600: #b3bfcd;
+  --color-slate-700: #cbd5e1;
+  --color-slate-800: #e2e8f0;
+  --color-slate-900: #f1f5f9;
+}
+
 * {
-  border-color: #e8ecf3;
+  border-color: var(--color-line);
 }
 
 html,
@@ -42,6 +75,9 @@ body {
 ::-webkit-scrollbar-thumb {
   background: #cdd6e3;
   border-radius: 999px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #33404f;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -82,4 +118,8 @@ body {
 
 input[type='date']::-webkit-calendar-picker-indicator {
   opacity: 0.5;
+}
+
+.dark input[type='date']::-webkit-calendar-picker-indicator {
+  filter: invert(1);
 }

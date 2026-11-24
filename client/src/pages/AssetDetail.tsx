@@ -28,7 +28,7 @@ import { DISPOSAL_METHOD_LABELS } from '@shared/domain';
 export function AssetDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { hasRole } = useAuth();
+  const { can, hasRole } = useAuth();
   const { push } = useToast();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['asset', id], queryFn: () => api<any>(`/assets/${id}`) });
@@ -242,9 +242,11 @@ export function AssetDetailPage() {
                 {activeDisposal.buyer ? (
                   <p className="text-[11px] text-slate-500">Buyer: {activeDisposal.buyer} · {naira(activeDisposal.proceeds ?? 0)}</p>
                 ) : null}
-                <Link to="/disposals" className="inline-block text-[11px] font-semibold text-brand-600 hover:underline">
-                  Open disposal register
-                </Link>
+                {can('disposals') ? (
+                  <Link to="/disposals" className="inline-block text-[11px] font-semibold text-brand-600 hover:underline">
+                    Open disposal register
+                  </Link>
+                ) : null}
               </div>
             </Card>
           ) : null}

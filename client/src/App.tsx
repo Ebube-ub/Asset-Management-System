@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './lib/auth';
 import { AppLayout } from './components/layout/AppLayout';
-import { NAV_PERMISSIONS, type NavKey } from '@shared/domain';
+import { canAccess, type NavKey } from '@shared/domain';
 import { Spinner } from './components/ui';
 
 import { LoginPage } from './pages/Login';
@@ -32,9 +32,9 @@ function Guard({ children, area }: { children: React.ReactNode; area: NavKey }) 
   const { user } = useAuth();
   const location = useLocation();
   if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
-  if (!NAV_PERMISSIONS[area].some((r) => user.roles.includes(r))) {
+  if (!canAccess(user.roles, area)) {
     return (
-      <div className="mx-auto mt-16 max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center">
+      <div className="mx-auto mt-16 max-w-md rounded-2xl border border-slate-200 bg-surface p-8 text-center">
         <p className="text-sm font-semibold text-ink">You do not have access to this module</p>
         <p className="mt-1 text-xs text-slate-500">
           This area is limited to specific roles. Your role is {user.roles.join(', ') || 'staff member'}.

@@ -201,6 +201,7 @@ export function NewRequestPage() {
                           type="number"
                           min={1}
                           max={50}
+                          required
                           value={line.quantity}
                           onChange={(e) => {
                             const next = [...lines];
@@ -226,6 +227,7 @@ export function NewRequestPage() {
                       <div className="mt-2.5">
                         <Field label="Room" required hint="This asset type is held by location, so it is placed in a room rather than assigned to a person.">
                           <Select
+                            required
                             value={line.recipientRoomId}
                             onChange={(e) => {
                               const next = [...lines];
@@ -263,6 +265,7 @@ export function NewRequestPage() {
                   onChange={(e) => setJustification(e.target.value)}
                   placeholder="Explain why these items are needed…"
                   maxLength={2000}
+                  aria-invalid={!!errors.justification}
                 />
               </Field>
               <p className="mt-1.5 text-right text-[11px] text-slate-400">{justification.length}/2000</p>
@@ -296,6 +299,7 @@ export function NewRequestPage() {
                       onChange={(e) => setPriorityJustification(e.target.value)}
                       placeholder="Why does this need a higher priority?"
                       className="min-h-[70px]"
+                      aria-invalid={!!errors.priorityJustification}
                     />
                   </Field>
                   <Field label="Business impact" required error={errors.businessImpact}>
@@ -304,6 +308,7 @@ export function NewRequestPage() {
                       onChange={(e) => setBusinessImpact(e.target.value)}
                       placeholder="What is affected if this is delayed?"
                       className="min-h-[70px]"
+                      aria-invalid={!!errors.businessImpact}
                     />
                   </Field>
                 </>

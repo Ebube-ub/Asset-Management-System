@@ -70,6 +70,7 @@ import {
   updateStaff,
 } from './domains/organisation.js';
 import { dashboard } from './domains/dashboard.js';
+import { markNotificationsRead, notificationFeed } from './domains/notifications.js';
 import { runReport, reportsIndex } from './domains/reports.js';
 import { ALL_ROLES } from '../shared/domain.js';
 
@@ -168,6 +169,25 @@ api.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     res.json(await dashboard(req.user!));
+  }),
+);
+
+// ------------------------------------------------------------------
+// Notification feed
+// ------------------------------------------------------------------
+api.get(
+  '/notifications',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json(await notificationFeed(req.user!));
+  }),
+);
+
+api.post(
+  '/notifications/read',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json(await markNotificationsRead(req.user!));
   }),
 );
 

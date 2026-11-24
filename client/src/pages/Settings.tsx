@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Save, Scale, Settings2 } from 'lucide-react';
+import { AlertCircle, Monitor, Moon, Save, Scale, Settings2, Sun } from 'lucide-react';
 import { api } from '../lib/api';
 import {
   Badge,
@@ -20,9 +20,17 @@ import {
   useToast,
 } from '../components/ui';
 import { dateTime } from '../lib/format';
+import { useTheme, type ThemeMode } from '../lib/theme';
+
+const APPEARANCE: { mode: ThemeMode; label: string; copy: string; icon: React.ReactNode }[] = [
+  { mode: 'light', label: 'Light', copy: 'Bright canvas, dark text', icon: <Sun className="h-4 w-4" /> },
+  { mode: 'dark', label: 'Dark', copy: 'Dimmed canvas, light text', icon: <Moon className="h-4 w-4" /> },
+  { mode: 'system', label: 'System', copy: 'Follow this device', icon: <Monitor className="h-4 w-4" /> },
+];
 
 export function SettingsPage() {
   const { push } = useToast();
+  const { mode, resolved, setMode } = useTheme();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['settings'], queryFn: () => api<any>('/settings') });
   const [weights, setWeights] = useState({ price: 40, quality: 30, delivery: 15, warranty: 15 });
@@ -64,6 +72,37 @@ export function SettingsPage() {
           Configure quotation scoring, the parked-item review period and the second financial approver.
         </p>
       </div>
+
+      <Card>
+        <CardHeader
+          title="Appearance"
+          subtitle="Saved on this device — everyone can change their own theme from their profile menu"
+          action={
+            <Badge className="bg-slate-100 text-slate-600 ring-slate-200">
+              {mode === 'system' ? `System · ${resolved}` : mode === 'dark' ? 'Dark' : 'Light'}
+            </Badge>
+          }
+        />
+        <div className="grid gap-2.5 p-5 sm:grid-cols-3">
+          {APPEARANCE.map((option) => (
+            <button
+              key={option.mode}
+              onClick={() => setMode(option.mode)}
+              className={
+                mode === option.mode
+                  ? 'rounded-xl border-2 border-brand-400 bg-brand-50/60 p-3.5 text-left'
+                  : 'rounded-xl border border-slate-200 p-3.5 text-left hover:border-brand-200 hover:bg-slate-50'
+              }
+            >
+              <span className={mode === option.mode ? 'flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-white' : 'flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-500'}>
+                {option.icon}
+              </span>
+              <p className="mt-2 text-[13px] font-semibold text-ink">{option.label}</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">{option.copy}</p>
+            </button>
+          ))}
+        </div>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
         <Card>

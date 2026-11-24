@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Info, Loader2, Search, UploadCloud, X } from 'lucide-react';
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { initials } from '../lib/format';
 import { uploadFile } from '../lib/api';
 
@@ -29,7 +29,7 @@ export function Button({
   const variants = {
     primary: 'bg-brand-500 text-white hover:bg-brand-600 shadow-sm shadow-brand-500/20',
     secondary: 'bg-brand-50 text-brand-600 hover:bg-brand-100',
-    outline: 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
+    outline: 'border border-slate-200 bg-surface text-slate-700 hover:bg-slate-50',
     ghost: 'text-slate-600 hover:bg-slate-100',
     danger: 'bg-red-500 text-white hover:bg-red-600 shadow-sm shadow-red-500/20',
     success: 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm shadow-emerald-500/20',
@@ -61,7 +61,7 @@ export function Button({
 // ------------------------------------------------------------------
 export function Card({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn('rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(16,85,140,0.04)]', className)} {...props}>
+    <div className={cn('rounded-2xl border border-slate-200/80 bg-surface shadow-[0_1px_2px_rgba(16,85,140,0.04)]', className)} {...props}>
       {children}
     </div>
   );
@@ -152,7 +152,7 @@ export function Avatar({ name, size = 'md' }: { name: string; size?: 'xs' | 'sm'
 // Form controls
 // ------------------------------------------------------------------
 export const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-ink placeholder:text-slate-400 focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50';
+  'w-full rounded-xl border border-slate-200 bg-surface px-3 py-2.5 text-sm text-ink placeholder:text-slate-400 focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50 aria-[invalid=true]:border-red-400 aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-red-100';
 
 export function Field({
   label,
@@ -169,6 +169,17 @@ export function Field({
   children: React.ReactNode;
   className?: string;
 }) {
+  // Propagate the requirement to the control itself so the browser can point at
+  // the first missing field when a confirm is pressed.
+  let control = children;
+  if (isValidElement(children) && children.type !== Fragment) {
+    const childProps = children.props as Record<string, unknown>;
+    control = cloneElement(children as React.ReactElement<Record<string, unknown>>, {
+      required: required ? true : childProps?.required,
+      'aria-invalid': error ? true : childProps?.['aria-invalid'],
+    });
+  }
+
   return (
     <div className={cn('space-y-1.5', className)}>
       {label ? (
@@ -176,7 +187,7 @@ export function Field({
           {label} {required ? <span className="text-red-500">*</span> : null}
         </label>
       ) : null}
-      {children}
+      {control}
       {error ? <p className="text-xs font-medium text-red-600">{error}</p> : hint ? <p className="text-xs text-slate-400">{hint}</p> : null}
     </div>
   );
@@ -308,8 +319,13 @@ export function Modal({
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-900/40 p-0 backdrop-blur-[2px] sm:items-center sm:p-4">
-      <div className={cn('animate-fade-up w-full rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl', width)}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={cn('animate-fade-up w-full rounded-t-2xl bg-surface shadow-2xl sm:rounded-2xl', width)}
+      >
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
           <div>
             <h2 className="text-base font-semibold text-ink">{title}</h2>
@@ -384,8 +400,13 @@ export function Drawer({
 }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-[2px]">
-      <div className="animate-slide-in flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-[2px]">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="animate-slide-in flex h-full w-full max-w-md flex-col bg-surface shadow-2xl"
+      >
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
           <div>
             <h2 className="text-base font-semibold text-ink">{title}</h2>
@@ -605,9 +626,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             key={t.id}
             className={cn(
               'animate-fade-up pointer-events-auto flex items-start gap-2.5 rounded-xl border px-3.5 py-3 text-xs font-medium shadow-lg',
-              t.tone === 'success' && 'border-emerald-200 bg-white text-emerald-800',
-              t.tone === 'error' && 'border-red-200 bg-white text-red-700',
-              t.tone === 'info' && 'border-brand-200 bg-white text-brand-700',
+              t.tone === 'success' && 'border-emerald-200 bg-surface text-emerald-800',
+              t.tone === 'error' && 'border-red-200 bg-surface text-red-700',
+              t.tone === 'info' && 'border-brand-200 bg-surface text-brand-700',
             )}
           >
             {t.tone === 'success' ? (

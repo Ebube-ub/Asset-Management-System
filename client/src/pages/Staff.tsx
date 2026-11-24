@@ -99,7 +99,7 @@ export function StaffPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search staff by name, email or role…"
-              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-100"
+              className="w-full rounded-xl border border-slate-200 bg-surface py-2 pl-9 pr-3 text-xs focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-100"
             />
           </div>
           <p className="text-[11px] text-slate-400">{rows.length} record(s)</p>

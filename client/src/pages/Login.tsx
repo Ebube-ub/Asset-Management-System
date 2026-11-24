@@ -141,7 +141,7 @@ export function LoginPage() {
                     setEmail(d.email);
                     setPassword('Password123!');
                   }}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/50"
+                  className="rounded-xl border border-slate-200 bg-surface px-3 py-2 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/50"
                 >
                   <p className="text-[11px] font-semibold text-ink">{d.role}</p>
                   <p className="truncate text-[10px] text-slate-500">{d.name}</p>

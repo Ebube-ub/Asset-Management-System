@@ -58,7 +58,7 @@ server/
   lib/auth.ts          sessions, password hashing, role guards
   lib/repo.ts          shared rules: settings, refs, history, status derivation, hierarchy
   domains/             one module per bounded context: requests, stock, quotes, finance,
-                       purchases, assets, disposals, organisation, dashboard, reports
+                       purchases, assets, disposals, organisation, dashboard, reports, notifications
   routes.ts            HTTP surface, one guard per action
 shared/domain.ts       vocabulary shared by client and server (statuses, weights, scoring, navigation)
 client/src/            React app: pages, layout, design-system components
@@ -66,6 +66,22 @@ client/src/            React app: pages, layout, design-system components
 
 Bounded contexts are kept separate and reference each other by ID only. Request and asset history are
 written as log rows (`request_history`, `asset_history`); nothing is rebuilt from events.
+
+## Interface behaviour
+
+- **Navigation follows permission.** The sidebar, dashboard cards and every in-page link only offer
+  modules the signed-in person can open. Staff members without a role see Dashboard, Requests, Assets and
+  Transfers & Returns; their requests and assets are scoped to them by the server.
+- **Theme.** Light, Dark or System, chosen in Settings → Appearance or from the profile menu. The choice is
+  stored per device in `localStorage` and System follows the operating system's preference live. The dark
+  palette is implemented by inverting the neutral ramp in `client/src/index.css`, so no component carries
+  its own colour branch.
+- **Notification feed.** The bell lists the 30 most recent request and asset events the person is entitled
+  to see, plus a "Needs you" digest of their open queues. Read state is stored per person in
+  `notification_read`; "Mark all read" moves the watermark.
+- **Invalid input.** Pressing a confirm/submit button with a field missing or wrong scrolls to and focuses
+  the first offending field. `Field` propagates `required` to its control, and errored controls carry
+  `aria-invalid`, so the behaviour works for every form and dialog without per-page plumbing.
 
 ## Implemented business rules
 

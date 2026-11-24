@@ -220,7 +220,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             <ChevronDown className={cn('h-3.5 w-3.5 text-white/50 transition-transform', menuOpen && 'rotate-180')} />
           </button>
           {menuOpen ? (
-            <div className="absolute bottom-[68px] left-3 right-3 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
+            <div className="absolute bottom-[68px] left-3 right-3 overflow-hidden rounded-xl border border-slate-200 bg-surface py-1 shadow-xl">
               <button
                 className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
                 onClick={() => {

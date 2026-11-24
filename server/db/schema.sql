@@ -251,6 +251,12 @@ create table if not exists app_setting (
   value text not null
 );
 
+-- How far each person has read their notification feed.
+create table if not exists notification_read (
+  staff_id uuid primary key references staff(id) on delete cascade,
+  last_read_at timestamptz not null default now()
+);
+
 create table if not exists session (
   id uuid primary key,
   staff_id uuid not null references staff(id) on delete cascade,

@@ -48,7 +48,7 @@ const PRIORITY_TONE: Record<string, string> = {
 };
 
 export function DashboardPage() {
-  const { user, hasRole } = useAuth();
+  const { can, hasRole } = useAuth();
   const navigate = useNavigate();
   const query = useQuery({ queryKey: ['dashboard'], queryFn: () => api<any>('/dashboard') });
 
@@ -111,6 +111,8 @@ export function DashboardPage() {
   const quickActions = buildQuickActions({ isAdmin, isStock, isFinance, isManager, navigate });
 
   const activity = isAdmin || isManager ? d.activity : d.myActivity;
+  const canSeeReports = can('reports');
+  const canSeeAssets = can('assets');
 
   const exportSummary = () => {
     downloadCsv(
@@ -210,9 +212,11 @@ export function DashboardPage() {
             title="Request activity"
             subtitle="Requests raised over the last six months"
             action={
-              <Link to="/reports" className="text-xs font-semibold text-brand-500 hover:underline">
-                View reports
-              </Link>
+              canSeeReports ? (
+                <Link to="/reports" className="text-xs font-semibold text-brand-500 hover:underline">
+                  View reports
+                </Link>
+              ) : null
             }
           />
           <div className="px-3 pb-2 pt-4">
@@ -322,9 +326,11 @@ export function DashboardPage() {
                 ))
               )}
             </div>
-            <Link to="/reports" className="block border-t border-slate-100 px-4 py-2.5 text-center text-[11px] font-semibold text-brand-500 hover:bg-slate-50">
-              View all activity in reports
-            </Link>
+            {canSeeReports ? (
+              <Link to="/reports" className="block border-t border-slate-100 px-4 py-2.5 text-center text-[11px] font-semibold text-brand-500 hover:bg-slate-50">
+                View all activity in reports
+              </Link>
+            ) : null}
           </Card>
         </div>
       </div>
@@ -353,7 +359,13 @@ export function DashboardPage() {
           <CardHeader
             title="Top asset categories"
             subtitle="Registered assets by category"
-            action={<Link to="/reports" className="text-[11px] font-semibold text-brand-500 hover:underline">View all</Link>}
+            action={
+              canSeeAssets ? (
+                <Link to="/assets" className="text-[11px] font-semibold text-brand-500 hover:underline">
+                  View all
+                </Link>
+              ) : null
+            }
           />
           <div className="p-4">
             {d.topCategories.length === 0 ? (
@@ -430,7 +442,7 @@ export function DashboardPage() {
       <Card>
         <CardHeader
           title={isAdmin || isStock || isFinance ? 'Recent requests' : 'My recent requests'}
-          subtitle="The newest requests across the organisation"
+          subtitle={isAdmin || isStock || isFinance ? 'The newest requests across the organisation' : 'Requests you raised or that were raised for you'}
           action={
             <div className="flex gap-2">
               {(isAdmin || isStock || isFinance || isManager) && (

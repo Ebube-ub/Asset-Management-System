@@ -111,18 +111,22 @@ export const CONDITION_LABELS: Record<'new' | 'good' | 'fair' | 'poor', string> 
   poor: 'Poor',
 };
 
-/** Roles allowed to open each module. Read-only access is enforced per action server-side. */
+/**
+ * Who may open each module: a list of roles, or '*' for every signed-in person
+ * (including staff members who hold no role). Read-only access is still enforced
+ * per action and per record on the server.
+ */
 export const NAV_PERMISSIONS = {
-  dashboard: ALL_ROLES,
-  requests: ALL_ROLES,
+  dashboard: '*',
+  requests: '*',
   approvals: ['team_lead', 'line_manager', 'administrator'] as Role[],
   stock: ['stock_manager', 'administrator'] as Role[],
   quotations: ['stock_manager', 'financial_executive', 'administrator'] as Role[],
   'financial-approvals': ['financial_executive', 'administrator'] as Role[],
   purchases: ['stock_manager', 'financial_executive', 'administrator'] as Role[],
-  assets: ALL_ROLES,
-  transfers: ALL_ROLES,
-  returns: ALL_ROLES,
+  assets: '*',
+  transfers: '*',
+  returns: '*',
   disposals: ['administrator', 'stock_manager'] as Role[],
   staff: ['administrator'] as Role[],
   organisation: ['administrator'] as Role[],
@@ -130,12 +134,14 @@ export const NAV_PERMISSIONS = {
   'asset-types': ['administrator', 'stock_manager'] as Role[],
   reports: ['administrator', 'stock_manager', 'financial_executive', 'line_manager'] as Role[],
   settings: ['administrator'] as Role[],
-} satisfies Record<string, Role[]>;
+} satisfies Record<string, Role[] | '*'>;
 
 export type NavKey = keyof typeof NAV_PERMISSIONS;
 
 export function canAccess(roles: Role[], key: NavKey): boolean {
-  return NAV_PERMISSIONS[key].some((r) => roles.includes(r));
+  const rule = NAV_PERMISSIONS[key];
+  if (rule === '*') return true;
+  return rule.some((r) => roles.includes(r));
 }
 
 /** Request status is derived from its items (never set by hand). */
