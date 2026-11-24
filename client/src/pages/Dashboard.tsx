@@ -47,6 +47,15 @@ const PRIORITY_TONE: Record<string, string> = {
   Low: 'bg-slate-400',
 };
 
+/** Chart tooltips follow the active theme instead of a fixed light card. */
+const TOOLTIP_STYLE: React.CSSProperties = {
+  borderRadius: 12,
+  border: '1px solid var(--color-line)',
+  background: 'var(--color-surface)',
+  fontSize: 12,
+  boxShadow: '0 6px 18px rgba(2, 8, 18, 0.25)',
+};
+
 export function DashboardPage() {
   const { can, hasRole } = useAuth();
   const navigate = useNavigate();
@@ -229,12 +238,14 @@ export function DashboardPage() {
                       <stop offset="100%" stopColor="#287FE8" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#7A8494' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#7A8494' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-chart-grid)" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--color-chart-axis)' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: 'var(--color-chart-axis)' }} axisLine={false} tickLine={false} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{ borderRadius: 12, border: '1px solid #e8ecf3', fontSize: 12 }}
-                    labelStyle={{ fontWeight: 600, color: '#172033' }}
+                    cursor={{ stroke: 'var(--color-slate-300)' }}
+                    contentStyle={TOOLTIP_STYLE}
+                    labelStyle={{ fontWeight: 600, color: 'var(--color-ink)' }}
+                    itemStyle={{ color: 'var(--color-slate-700)' }}
                   />
                   <Area type="monotone" dataKey="requests" name="Raised" stroke="#1769AA" strokeWidth={2.2} fill="url(#reqFill)" />
                   <Area type="monotone" dataKey="fulfilled" name="Completed" stroke="#10B981" strokeWidth={2} fill="transparent" />
@@ -279,7 +290,7 @@ export function DashboardPage() {
                         <Cell key={s.name} fill={s.color} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e8ecf3', fontSize: 12 }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={{ color: 'var(--color-slate-700)' }} />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (

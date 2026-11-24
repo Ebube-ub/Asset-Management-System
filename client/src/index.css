@@ -30,6 +30,8 @@
  * keep their identity in both themes.
  */
 .dark {
+  color-scheme: dark;
+
   --color-canvas: #0b1118;
   --color-ink: #e8eef6;
   --color-surface: #121a24;
@@ -42,12 +44,120 @@
   --color-slate-100: #1c2632;
   --color-slate-200: #26313f;
   --color-slate-300: #39485a;
-  --color-slate-400: #6b7a8d;
+  --color-slate-400: #8697a9;
   --color-slate-500: #93a1b3;
   --color-slate-600: #b3bfcd;
   --color-slate-700: #cbd5e1;
   --color-slate-800: #e2e8f0;
   --color-slate-900: #f1f5f9;
+
+  /* Brand tints: soft chips, avatars and secondary buttons become deep navy.
+     The 500-700 steps stay as they are because they carry the sidebar and
+     header gradients and the solid primary buttons. */
+  --color-brand-50: #16273a;
+  --color-brand-100: #1e3a53;
+  --color-brand-200: #2c4f70;
+
+  /* Accent tints: the 50-200 steps back badges, callouts and icon tiles, so
+     in dark mode they become deep tinted fills instead of pastel ones. */
+  --color-emerald-50: #06261d;
+  --color-emerald-100: #093426;
+  --color-emerald-200: #14523e;
+  --color-emerald-700: #6ee7b7;
+  --color-emerald-800: #a7f3d0;
+  --color-emerald-900: #d1fae5;
+
+  --color-green-50: #06261d;
+  --color-green-100: #093426;
+  --color-green-200: #14523e;
+  --color-green-700: #6ee7b7;
+  --color-green-800: #a7f3d0;
+  --color-green-900: #d1fae5;
+
+  --color-amber-50: #2a1f07;
+  --color-amber-100: #33270c;
+  --color-amber-200: #5a451a;
+  --color-amber-700: #fcd34d;
+  --color-amber-800: #fde68a;
+  --color-amber-900: #fef3c7;
+
+  --color-orange-50: #2a1708;
+  --color-orange-100: #341d0c;
+  --color-orange-200: #5c3517;
+  --color-orange-700: #fdba74;
+  --color-orange-800: #fed7aa;
+  --color-orange-900: #ffedd5;
+
+  --color-red-50: #2b1014;
+  --color-red-100: #351318;
+  --color-red-200: #5e2229;
+  --color-red-700: #fca5a5;
+  --color-red-800: #fecaca;
+  --color-red-900: #fee2e2;
+
+  --color-violet-50: #1b1533;
+  --color-violet-100: #241d44;
+  --color-violet-200: #3a2d69;
+  --color-violet-700: #c4b5fd;
+  --color-violet-800: #ddd6fe;
+  --color-violet-900: #ede9fe;
+
+  --color-blue-50: #0c1c34;
+  --color-blue-100: #112643;
+  --color-blue-200: #1e3d68;
+  --color-blue-700: #93c5fd;
+  --color-blue-800: #bfdbfe;
+  --color-blue-900: #dbeafe;
+
+  --color-cyan-50: #06212a;
+  --color-cyan-100: #0a2b36;
+  --color-cyan-200: #144a56;
+  --color-cyan-700: #67e8f9;
+  --color-cyan-800: #a5f3fc;
+  --color-cyan-900: #cffafe;
+}
+
+/*
+ * The 500/600 accent steps are also used as solid fills behind white text
+ * (primary buttons, quick-action tiles), so they keep their vivid value. Text
+ * that sits on a tinted surface needs the lifted tone instead.
+ */
+.dark .text-brand-500,
+.dark .text-brand-600 {
+  color: #7fb4dd;
+}
+.dark .text-brand-700 {
+  color: #9dcbeb;
+}
+.dark .text-emerald-500,
+.dark .text-emerald-600,
+.dark .text-green-500,
+.dark .text-green-600 {
+  color: #34d399;
+}
+.dark .text-amber-500,
+.dark .text-amber-600 {
+  color: #fbbf24;
+}
+.dark .text-orange-500,
+.dark .text-orange-600 {
+  color: #fb923c;
+}
+.dark .text-red-500,
+.dark .text-red-600 {
+  color: #f87171;
+}
+.dark .text-violet-500,
+.dark .text-violet-600 {
+  color: #a78bfa;
+}
+.dark .text-blue-500,
+.dark .text-blue-600 {
+  color: #60a5fa;
+}
+.dark .text-cyan-500,
+.dark .text-cyan-600 {
+  color: #22d3ee;
 }
 
 * {
