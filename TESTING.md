@@ -128,35 +128,48 @@ The section formerly called "Approvals" is now **Purchase Request** in the sideb
 
 - **Sign in as** Ibrahim or Emeka: their queue shows reporting-line reviews.
 - By default a category's approval level is *Line Manager*, which the reporting-line review has already
-  exercised, so it is skipped and the request goes on to stock. To see a category approval:
+  exercised, so it is skipped and the request goes on to stock. To see an approval level:
 
-**Sign in as** Grace → Organisation → **Asset Configuration** → edit **IT Equipment** → set
-*Approval level* to **Administrator** → Save. Raise a laptop request as Zainab and pass it through
-Ibrahim and Emeka.
+**Sign in as** Grace → Organisation → **Asset Configuration** → edit the category that holds the laptop
+(**Computing Devices** on a fresh database, **IT Equipment** on migrated data) → set *Approval level* to
+**Administrator** → Save. Raise a laptop request as Zainab and pass it through Ibrahim and Emeka.
 
 - **Expect** status *Awaiting approval*, and the request in **Grace's** Purchase Request queue with a
   violet chip reading "administrator approval".
 - Approve it there. **Expect** status *In progress* and the approval recorded in the request history.
-- Set the category approval back to *Line Manager* afterwards.
+- The same works from a class: clear the category's *Approval level* back to **Inherit from …**, then set the
+  **IT Equipment** class's *Default approval level* to **Administrator**. The category and every type under it
+  inherit it. Set it back to *No extra approval* afterwards.
 
 Rejecting and returning behave the same at an approval level as in the reporting line.
 
 ---
 
-## 5. Asset Configuration — categories, types and fields
+## 5. Asset Configuration — classes, categories, types and fields
 
 **Sign in as** Grace → Organisation → **Asset Configuration**.
 
-- Four categories (IT Equipment, Furniture, Facilities, AV Equipment) each showing its approval level,
-  type count and registered asset count; eight types with the fields each one captures.
-- **New category**: name, description, approval level, and "who may request" (minimum role).
-- **New asset type**: name, category, custody (person or location).
+- **Asset classes** at the top: IT Equipment, Office Equipment, Furniture, Facilities Equipment and Vehicles,
+  each with its category count, type count, registered asset count and default approval/request rules.
+- **Asset categories** sit inside a class (IT Equipment → Computing Devices and Networking Equipment;
+  Furniture → Office Seating and Desks and Tables; Facilities Equipment → Air Conditioning). On migrated
+  data the original category names are kept and mapped to the closest class.
+- **Asset types** sit inside a category (Computing Devices → Dell Latitude laptop, HP monitor, Cisco IP phone;
+  Office Seating → Herman Miller chair). Eight types show the fields each one captures.
+- **New class / New category / New asset type**: a category cannot be created without a class, and a type
+  cannot be created without a category. Approval level and "who may request" can be set at any of the three
+  levels; leaving either blank inherits from the level above.
+- **Inactive, not deleted**: deactivate a class, category or type. It disappears from new requests and asset
+  registration but stays readable on existing assets and historical requests.
+- **Delete guards**: try deleting a class that still has a category, a category that still has a type, or a
+  type used by an asset or request. Each is refused with an explanation.
 - **Edit type & fields**: add a field, choose text / number / dropdown / date / yes-no, mark it
   required, order it, remove or retire a retired field. The seeded laptop has Brand, Model, Ownership,
   Processor, RAM, Storage, Warranty; the air conditioner has Brand, Model, Capacity, Ownership,
   Installation location.
 
-**Fields appear only where they belong:** sign in as Fatima → Assets → New asset, or Purchases.
+**Fields appear only where they belong:** sign in as Fatima → Assets → Register existing asset, or Purchases.
+The type picker is grouped by class, so the class and category are visible before choosing a type.
 Choose the laptop type and only laptop fields appear; switch to the air conditioner and the fields
 change. A required field blocks saving until it is filled.
 

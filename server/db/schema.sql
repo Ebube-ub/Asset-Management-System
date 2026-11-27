@@ -39,9 +39,26 @@ create table if not exists room (
 
 -- ============================================================
 -- Asset Configuration context
+-- Asset Class → Asset Category → Asset Type → Individual Asset
 -- ============================================================
+-- Approver level required before anything in this class is released to stock.
+-- Categories and types inherit it unless they set their own.
+create table if not exists asset_class (
+  id uuid primary key,
+  name text not null unique,
+  description text,
+  approval_role text check (approval_role in ('team_lead','line_manager','stock_manager','financial_executive','administrator')),
+  approval_stage integer not null default 1,
+  -- Hierarchy restriction: the lowest role that may request this class.
+  min_request_role text check (min_request_role in ('team_lead','line_manager','stock_manager','financial_executive','administrator')),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+-- Every category belongs to one class; a category cannot exist on its own.
 create table if not exists asset_category (
   id uuid primary key,
+  class_id uuid not null references asset_class(id),
   name text not null unique,
   description text,
   -- Approver level required before anything in this category is released to stock.
@@ -52,18 +69,21 @@ create table if not exists asset_category (
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
-
+-- Every type belongs to one category. approval_role/min_request_role are
+-- optional overrides; when null the category (then the class) decides.
 create table if not exists asset_type (
   id uuid primary key,
   name text not null unique,
   custody_kind text not null check (custody_kind in ('person','location')),
   category text not null default 'General',
-  category_id uuid references asset_category(id),
+  category_id uuid not null references asset_category(id),
   description text,
+  approval_role text check (approval_role in ('team_lead','line_manager','stock_manager','financial_executive','administrator')),
+  approval_stage integer,
+  min_request_role text check (min_request_role in ('team_lead','line_manager','stock_manager','financial_executive','administrator')),
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
-
 -- Fields that belong to one asset type only. A laptop and an air conditioner
 -- share the register but never share a form.
 create table if not exists asset_attribute (

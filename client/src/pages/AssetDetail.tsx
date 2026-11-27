@@ -152,7 +152,9 @@ export function AssetDetailPage() {
               <AssetStatusBadge status={asset.status} />
             </div>
             <p className="mt-1 text-sm text-slate-500">
-              {asset.assetTypeName} · {asset.category} · {isPerson ? 'assigned to a person' : 'assigned to a location'}
+              <span className="font-medium text-slate-600">{asset.assetClassName}</span> ›{' '}
+              <span className="font-medium text-slate-600">{asset.categoryName}</span> › {asset.assetTypeName} ·{' '}
+              {isPerson ? 'assigned to a person' : 'assigned to a location'}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

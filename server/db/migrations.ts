@@ -152,6 +152,76 @@ const migrations: Migration[] = [
        where not exists (select 1 from asset_attribute x where x.asset_type_id = t.id and x.key = a.key);
     `,
   },
+  {
+    // Asset Class becomes the top of the configuration hierarchy. Approval rules
+    // can be set at class, category or type level; the most specific one wins.
+    id: '2026-11-28-asset-class',
+    sql: `
+      create table if not exists asset_class (
+        id uuid primary key,
+        name text not null unique,
+        description text,
+        approval_role text check (approval_role in ('team_lead','line_manager','stock_manager','financial_executive','administrator')),
+        approval_stage integer not null default 1,
+        min_request_role text check (min_request_role in ('team_lead','line_manager','stock_manager','financial_executive','administrator')),
+        active boolean not null default true,
+        created_at timestamptz not null default now()
+      );
+      alter table asset_category add column if not exists class_id uuid references asset_class(id);
+      alter table asset_type add column if not exists approval_role text;
+      alter table asset_type add column if not exists approval_stage integer;
+      alter table asset_type add column if not exists min_request_role text;
+      create index if not exists asset_category_class_idx on asset_category(class_id);
+      create index if not exists asset_type_category_idx on asset_type(category_id);
+    `,
+  },
+  {
+    // Place every existing category under a class without touching its rows, then
+    // make the hierarchy mandatory. Existing assets and requests keep their type.
+    id: '2026-11-28-asset-class-backfill',
+    sql: `
+      insert into asset_class (id, name, description)
+      select gen_random_uuid(), v.name, v.description
+        from (values
+          ('IT Equipment', 'Computers, peripherals, networking and communications equipment.'),
+          ('Office Equipment', 'General office machinery and presentation equipment.'),
+          ('Furniture', 'Desks, seating and other workplace furniture.'),
+          ('Facilities Equipment', 'Building services equipment such as air conditioning and power.'),
+          ('Vehicles', 'Company vehicles and mobile plant.')
+        ) as v(name, description)
+       where not exists (select 1 from asset_class c where lower(c.name) = lower(v.name));
+
+      update asset_category c
+         set class_id = cl.id
+        from asset_class cl
+       where c.class_id is null
+         and cl.name = case
+           when lower(c.name) in ('it equipment','av equipment','computing devices','networking equipment') then 'IT Equipment'
+           when lower(c.name) in ('furniture','office seating','desks and tables') then 'Furniture'
+           when lower(c.name) in ('facilities','facilities equipment','air conditioning') then 'Facilities Equipment'
+           when lower(c.name) = 'vehicles' then 'Vehicles'
+           else 'Office Equipment'
+         end;
+
+      update asset_category
+         set class_id = (select id from asset_class where name = 'Office Equipment')
+       where class_id is null;
+
+      -- Anything still without a category needs a home before the column is enforced.
+      insert into asset_category (id, class_id, name, description)
+      select gen_random_uuid(), (select id from asset_class where name = 'Office Equipment'),
+             'Unclassified', 'Types migrated from the earlier flat configuration.'
+       where exists (select 1 from asset_type where category_id is null)
+         and not exists (select 1 from asset_category where name = 'Unclassified');
+
+      update asset_type
+         set category_id = (select id from asset_category where name = 'Unclassified')
+       where category_id is null;
+
+      alter table asset_category alter column class_id set not null;
+      alter table asset_type alter column category_id set not null;
+    `,
+  },
 ];
 
 export async function applyMigrations(): Promise<string[]> {

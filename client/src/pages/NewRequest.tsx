@@ -265,13 +265,28 @@ export function NewRequestPage() {
                           required
                         >
                           <option value="">Choose an item…</option>
-                          {(meta.data?.assetTypes ?? []).map((t: any) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
-                              {t.minRequestRole ? ` · ${t.minRequestRole.replace('_', ' ')} and above` : ''}
-                            </option>
-                          ))}
+                          {(meta.data?.assetClasses ?? []).map((assetClass: any) => {
+                            const options = (meta.data?.assetTypes ?? []).filter(
+                              (t: any) => t.classId === assetClass.id,
+                            );
+                            if (!options.length) return null;
+                            return (
+                              <optgroup key={assetClass.id} label={assetClass.name}>
+                                {options.map((t: any) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.categoryName} · {t.name}
+                                    {t.minRequestRole ? ` · ${t.minRequestRole.replace('_', ' ')} and above` : ''}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            );
+                          })}
                         </Select>
+                        {type ? (
+                          <p className="mt-1 text-[10.5px] text-slate-400">
+                            {type.className} › {type.categoryName}
+                          </p>
+                        ) : null}
                       </Field>
                       {!groupMode ? (
                         <Field label={index === 0 ? 'Quantity' : undefined}>

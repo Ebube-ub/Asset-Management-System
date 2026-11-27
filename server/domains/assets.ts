@@ -11,6 +11,8 @@ export type AssetFilters = {
   q?: string;
   status?: string;
   assetTypeId?: string;
+  assetClassId?: string;
+  categoryId?: string;
   holderId?: string;
   roomId?: string;
   page?: number;
@@ -43,6 +45,14 @@ export async function listAssets(user: CurrentUser, filters: AssetFilters) {
     params.push(filters.assetTypeId);
     where.push(`a.asset_type_id = $${params.length}`);
   }
+  if (filters.assetClassId) {
+    params.push(filters.assetClassId);
+    where.push(`cl.id = $${params.length}`);
+  }
+  if (filters.categoryId) {
+    params.push(filters.categoryId);
+    where.push(`c.id = $${params.length}`);
+  }
   if (filters.holderId) {
     params.push(filters.holderId);
     where.push(`a.holder_staff_id = $${params.length}`);
@@ -54,7 +64,8 @@ export async function listAssets(user: CurrentUser, filters: AssetFilters) {
   if (filters.q) {
     params.push(`%${filters.q}%`);
     where.push(`(a.ref ilike $${params.length} or a.serial_number ilike $${params.length}
-      or at.name ilike $${params.length} or s.name ilike $${params.length} or rm.name ilike $${params.length})`);
+      or at.name ilike $${params.length} or c.name ilike $${params.length} or cl.name ilike $${params.length}
+      or s.name ilike $${params.length} or rm.name ilike $${params.length})`);
   }
   const whereSql = where.length ? `where ${where.join(' and ')}` : '';
   const sortable: Record<string, string> = {
@@ -69,6 +80,8 @@ export async function listAssets(user: CurrentUser, filters: AssetFilters) {
   const totalRow = await one<{ total: string }>(
     `select count(*)::text as total from asset a
        join asset_type at on at.id = a.asset_type_id
+       join asset_category c on c.id = at.category_id
+       join asset_class cl on cl.id = c.class_id
        left join staff s on s.id = a.holder_staff_id
        left join room rm on rm.id = a.room_id
        ${whereSql}`,
@@ -80,11 +93,14 @@ export async function listAssets(user: CurrentUser, filters: AssetFilters) {
     `select a.id, a.ref, a.serial_number as "serialNumber", a.condition, a.status, a.photo_url as "photoUrl",
             a.handover_status as "handoverStatus", a.registered_at as "registeredAt",
             at.name as "assetTypeName", at.custody_kind as "custodyKind", at.id as "assetTypeId", at.category,
+            c.name as "categoryName", cl.name as "assetClassName",
             s.name as "holderName", s.id as "holderId", rm.name as "roomName", rm.id as "roomId",
             (select d.id from disposal d where d.asset_id = a.id and d.status in ('pending','approved') limit 1) as "disposalId",
             (select count(*) from asset_movement m where m.asset_id = a.id and m.status = 'pending')::int as "pendingMovements"
        from asset a
        join asset_type at on at.id = a.asset_type_id
+       join asset_category c on c.id = at.category_id
+       join asset_class cl on cl.id = c.class_id
        left join staff s on s.id = a.holder_staff_id
        left join room rm on rm.id = a.room_id
        ${whereSql}
@@ -106,7 +122,9 @@ export async function getAsset(assetId: string) {
     `select a.id, a.ref, a.serial_number as "serialNumber", a.condition, a.status, a.notes,
             a.photo_url as "photoUrl", a.handover_status as "handoverStatus",
             a.registered_at as "registeredAt", a.asset_type_id as "assetTypeId",
-            at.name as "assetTypeName", at.custody_kind as "custodyKind", at.category, at.category_id as "categoryId",
+            at.name as "assetTypeName", at.custody_kind as "custodyKind", at.category,
+            at.category_id as "categoryId", c.name as "categoryName",
+            cl.id as "classId", cl.name as "assetClassName",
             s.name as "holderName", s.id as "holderId", s.email as "holderEmail",
             rm.name as "roomName", rm.id as "roomId",
             p.vendor_name as "purchaseVendor", p.cost::float8 as "purchaseCost", p.recorded_at as "purchaseDate",
@@ -115,6 +133,8 @@ export async function getAsset(assetId: string) {
             rs.name as "registeredByName"
        from asset a
        join asset_type at on at.id = a.asset_type_id
+       join asset_category c on c.id = at.category_id
+       join asset_class cl on cl.id = c.class_id
        left join staff s on s.id = a.holder_staff_id
        left join room rm on rm.id = a.room_id
        left join purchase p on p.id = a.purchase_id
@@ -218,11 +238,29 @@ export const registerAssetSchema = z.object({
 /** FR21: register an asset found in the store, with no request or purchase behind it. */
 export async function registerAsset(user: CurrentUser, body: unknown) {
   const input = parseBody(registerAssetSchema, body);
-  const type = await one<{ id: string; name: string; custody_kind: string }>(
-    `select id, name, custody_kind from asset_type where id = $1`,
+  const type = await one<{
+    id: string;
+    name: string;
+    custody_kind: string;
+    active: boolean;
+    category_active: boolean;
+    class_active: boolean;
+  }>(
+    `select t.id, t.name, t.custody_kind, t.active,
+            c.active as category_active, cl.active as class_active
+       from asset_type t
+       join asset_category c on c.id = t.category_id
+       join asset_class cl on cl.id = c.class_id
+      where t.id = $1`,
     [input.assetTypeId],
   );
   if (!type) throw new ApiError(400, 'Choose a valid asset type.');
+  if (!type.active || !type.category_active || !type.class_active) {
+    throw new ApiError(
+      400,
+      `${type.name} is inactive, or belongs to an inactive category or class, so a new asset cannot be registered against it.`,
+    );
+  }
   if (type.custody_kind === 'person' && input.roomId) {
     throw new ApiError(400, `${type.name} is held by a person, so it cannot be placed in a room.`);
   }
@@ -766,14 +804,17 @@ export async function confirmMovement(user: CurrentUser, movementId: string, act
 export async function assetTypesList(includeInactive = false) {
   const rows = await query<Record<string, unknown>>(
     `select at.id, at.name, at.custody_kind as "custodyKind", at.category, at.category_id as "categoryId",
+            c.name as "categoryName", cl.name as "className", cl.id as "classId",
             at.description, at.active, at.created_at as "createdAt",
-            c.approval_role as "approvalRole", c.min_request_role as "minRequestRole",
+            coalesce(at.approval_role, c.approval_role, cl.approval_role) as "approvalRole",
+            coalesce(at.min_request_role, c.min_request_role, cl.min_request_role) as "minRequestRole",
             (select count(*) from asset_attribute f where f.asset_type_id = at.id and f.active = true)::int as "attributeCount",
             (select count(*) from asset a where a.asset_type_id = at.id and a.status = 'available')::int as "availableCount",
             (select count(*) from asset a where a.asset_type_id = at.id and a.status = 'assigned')::int as "assignedCount",
             (select count(*) from asset a where a.asset_type_id = at.id)::int as "totalCount"
        from asset_type at
-       left join asset_category c on c.id = at.category_id
+       join asset_category c on c.id = at.category_id
+       join asset_class cl on cl.id = c.class_id
       ${includeInactive ? '' : 'where at.active = true'}
       order by at.name`,
   );

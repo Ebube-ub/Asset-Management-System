@@ -301,7 +301,7 @@ export function StockPage() {
             <table className="w-full min-w-[520px] text-xs">
               <thead>
                 <tr>
-                  {['Asset type', 'Category', 'Available', 'Assigned', 'Demand'].map((h) => (
+                  {['Asset type', 'Class', 'Category', 'Available', 'Assigned', 'Demand'].map((h) => (
                     <th
                       key={h}
                       className="border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500"
@@ -315,7 +315,8 @@ export function StockPage() {
                 {levels.slice(0, 20).map((l: any) => (
                   <tr key={l.assetTypeName + l.category}>
                     <td className="border-b border-slate-50 px-4 py-2.5 text-slate-700">{l.assetTypeName}</td>
-                    <td className="border-b border-slate-50 px-4 py-2.5 text-slate-500">{l.category}</td>
+                    <td className="border-b border-slate-50 px-4 py-2.5 text-slate-500">{l.assetClassName}</td>
+                    <td className="border-b border-slate-50 px-4 py-2.5 text-slate-500">{l.categoryName ?? l.category}</td>
                     <td className={cn('border-b border-slate-50 px-4 py-2.5 font-semibold', l.low ? 'text-red-600' : 'text-emerald-600')}>
                       {l.available}
                     </td>

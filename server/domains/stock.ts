@@ -345,15 +345,18 @@ export async function stockSummary() {
 export async function stockLevels() {
   const rows = await query<Record<string, unknown>>(
     `select t.id, t.name as "assetTypeName", t.category,
+            c.name as "categoryName", cl.name as "assetClassName",
             count(a.id) filter (where a.status = 'available')::int as "available",
             count(a.id) filter (where a.status = 'assigned')::int as "assigned",
             count(a.id)::int as "total",
             (select count(*) from request_item ri join request_line rl on rl.id = ri.request_line_id
               where rl.asset_type_id = t.id and ri.status in ('requested','purchased'))::int as "demand"
        from asset_type t
+       join asset_category c on c.id = t.category_id
+       join asset_class cl on cl.id = c.class_id
        left join asset a on a.asset_type_id = t.id
       where t.active = true
-      group by t.id, t.name, t.category
+      group by t.id, t.name, t.category, c.name, cl.name
       order by "available" asc, t.name`,
   );
   return {

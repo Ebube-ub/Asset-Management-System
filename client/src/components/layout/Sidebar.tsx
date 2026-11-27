@@ -129,7 +129,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-3">
+        <nav className="sidebar-scroll flex-1 overflow-y-auto px-3 py-3">
           {GROUPS.map((group) => {
             const items = group.items.filter((item) => can(item.key));
             if (!items.length) return null;
@@ -146,11 +146,13 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                           <button
                             onClick={() => setExpanded(expanded === item.key ? null : item.key)}
                             className={cn(
-                              'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors',
-                              childActive ? 'bg-white/15 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white',
+                              'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all duration-200',
+                              childActive
+                                ? 'sidebar-tab-active'
+                                : 'text-white/75 hover:translate-x-0.5 hover:bg-white/10 hover:text-white',
                             )}
                           >
-                            <span className="opacity-90">{item.icon}</span>
+                            <span className={childActive ? 'opacity-100' : 'opacity-90'}>{item.icon}</span>
                             <span className="flex-1 text-left">{item.label}</span>
                             <ChevronDown
                               className={cn('h-3.5 w-3.5 transition-transform', expanded === item.key && 'rotate-180')}
@@ -166,7 +168,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                                   className={({ isActive }) =>
                                     cn(
                                       'block rounded-lg px-2.5 py-1.5 text-xs transition-colors',
-                                      isActive ? 'bg-white/15 font-semibold text-white' : 'text-white/65 hover:bg-white/10 hover:text-white',
+                                      isActive
+                                        ? 'bg-white/15 font-semibold text-white'
+                                        : 'text-white/65 hover:bg-white/10 hover:text-white',
                                     )
                                   }
                                 >
@@ -184,11 +188,13 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                         to={item.to}
                         onClick={onClose}
                         className={cn(
-                          'flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors',
-                          active ? 'bg-white/15 text-white shadow-inner' : 'text-white/75 hover:bg-white/10 hover:text-white',
+                          'flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all duration-200',
+                          active
+                            ? 'sidebar-tab-active'
+                            : 'text-white/75 hover:translate-x-0.5 hover:bg-white/10 hover:text-white',
                         )}
                       >
-                        <span className="opacity-90">{item.icon}</span>
+                        <span className={active ? 'opacity-100' : 'opacity-90'}>{item.icon}</span>
                         {item.label}
                       </NavLink>
                     );

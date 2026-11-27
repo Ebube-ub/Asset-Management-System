@@ -34,6 +34,7 @@ export function AssetsPage() {
   const [params] = useSearchParams();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState(params.get('status') ?? '');
+  const [classId, setClassId] = useState('');
   const [typeId, setTypeId] = useState('');
   const [scope, setScope] = useState(params.get('scope') ?? 'all');
   const [page, setPage] = useState(1);
@@ -46,10 +47,10 @@ export function AssetsPage() {
 
   const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<any>('/meta') });
   const query = useQuery({
-    queryKey: ['assets', { search, status, typeId, scope, page, sort, dir }],
+    queryKey: ['assets', { search, status, classId, typeId, scope, page, sort, dir }],
     queryFn: () =>
       api<any>(
-        `/assets?q=${encodeURIComponent(search)}&status=${status}&assetTypeId=${typeId}&scope=${scope}&page=${page}&pageSize=10&sort=${sort}&dir=${dir}`,
+        `/assets?q=${encodeURIComponent(search)}&status=${status}&assetClassId=${classId}&assetTypeId=${typeId}&scope=${scope}&page=${page}&pageSize=10&sort=${sort}&dir=${dir}`,
       ),
   });
 
@@ -102,14 +103,14 @@ export function AssetsPage() {
       </div>
 
       <Card className="p-4">
-        <div className="grid gap-2.5 md:grid-cols-[1.6fr_1fr_1fr_1fr]">
+        <div className="grid gap-2.5 md:grid-cols-[1.5fr_1fr_1fr_1fr_1fr]">
           <SearchInput
             value={search}
             onChange={(v) => {
               setSearch(v);
               setPage(1);
             }}
-            placeholder="Search by asset ID, serial, type, holder or room…"
+            placeholder="Search by asset ID, serial, class, category, type or holder…"
           />
           <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
             <option value="">All statuses</option>
@@ -117,11 +118,19 @@ export function AssetsPage() {
               <option key={k} value={k}>{v}</option>
             ))}
           </Select>
+          <Select value={classId} onChange={(e) => { setClassId(e.target.value); setTypeId(''); setPage(1); }}>
+            <option value="">All asset classes</option>
+            {(meta.data?.assetClasses ?? []).map((c: any) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </Select>
           <Select value={typeId} onChange={(e) => { setTypeId(e.target.value); setPage(1); }}>
             <option value="">All asset types</option>
-            {(meta.data?.assetTypes ?? []).map((t: any) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
+            {(meta.data?.assetTypes ?? [])
+              .filter((t: any) => !classId || t.classId === classId)
+              .map((t: any) => (
+                <option key={t.id} value={t.id}>{t.categoryName} · {t.name}</option>
+              ))}
           </Select>
           <Select value={scope} onChange={(e) => { setScope(e.target.value); setPage(1); }}>
             <option value="all">{canRegister ? 'All assets' : 'All assets I can see'}</option>
@@ -148,6 +157,7 @@ export function AssetsPage() {
                 <tr>
                   <Th className="w-12">Photo</Th>
                   <Th onClick={() => toggleSort('ref')}><span className="inline-flex items-center gap-1">Asset <ArrowDownUp className="h-3 w-3" /></span></Th>
+                  <Th>Class / Category</Th>
                   <Th onClick={() => toggleSort('name')}>Type</Th>
                   <Th>Serial number</Th>
                   <Th>Condition</Th>
@@ -170,6 +180,10 @@ export function AssetsPage() {
                     </Td>
                     <Td>
                       <Link to={`/assets/${a.id}`} className="text-xs font-semibold text-brand-600 hover:underline">{a.ref}</Link>
+                    </Td>
+                    <Td>
+                      <p className="text-[11px] font-medium text-slate-700">{a.assetClassName}</p>
+                      <p className="text-[10.5px] text-slate-400">{a.categoryName}</p>
                     </Td>
                     <Td>
                       <p className="text-xs font-medium text-ink">{a.assetTypeName}</p>
@@ -227,10 +241,23 @@ export function AssetsPage() {
               }}
             >
               <option value="">Choose an asset type…</option>
-              {(meta.data?.assetTypes ?? []).map((t: any) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
+              {(meta.data?.assetClasses ?? []).map((assetClass: any) => {
+                const options = (meta.data?.assetTypes ?? []).filter((t: any) => t.classId === assetClass.id);
+                if (!options.length) return null;
+                return (
+                  <optgroup key={assetClass.id} label={assetClass.name}>
+                    {options.map((t: any) => (
+                      <option key={t.id} value={t.id}>{t.categoryName} · {t.name}</option>
+                    ))}
+                  </optgroup>
+                );
+              })}
             </Select>
+            {selectedType ? (
+              <p className="mt-1 text-[10.5px] text-slate-400">
+                {selectedType.className} › {selectedType.categoryName}
+              </p>
+            ) : null}
           </Field>
           <FileField
             value={photo}

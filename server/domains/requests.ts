@@ -85,12 +85,38 @@ async function loadTypeContext(typeIds: string[]) {
     custody_kind: string;
     category: string;
     min_request_role: string | null;
+    active: boolean;
+    category_id: string | null;
+    category_active: boolean | null;
+    class_active: boolean | null;
   }>(
-    `select t.id, t.name, t.custody_kind, t.category, c.min_request_role
-       from asset_type t left join asset_category c on c.id = t.category_id
-      where t.id = any($1::uuid[]) and t.active = true`,
+    `select t.id, t.name, t.custody_kind, c.name as category,
+            coalesce(t.min_request_role, c.min_request_role, cl.min_request_role) as min_request_role,
+            t.active, t.category_id, c.active as category_active, cl.active as class_active
+       from asset_type t
+       left join asset_category c on c.id = t.category_id
+       left join asset_class cl on cl.id = c.class_id
+      where t.id = any($1::uuid[])`,
     [typeIds],
   );
+
+  // An inactive class, category or type stays on historical records but cannot
+  // be chosen for new work — even if the client bypasses the form entirely.
+  for (const row of rows) {
+    if (!row.category_id || row.category_active === null || row.class_active === null) {
+      throw new ApiError(
+        400,
+        `${row.name} is not fully configured. Ask an administrator to place it in an asset category and asset class.`,
+      );
+    }
+    if (!row.active || !row.category_active || !row.class_active) {
+      throw new ApiError(
+        400,
+        `${row.name} is no longer available for new requests because it, its category or its class is inactive.`,
+      );
+    }
+  }
+
   return new Map(rows.map((r) => [r.id, r]));
 }
 
@@ -589,18 +615,27 @@ export const reviewSchema = z.object({
 });
 
 /**
- * The approval levels a request must clear, derived from its asset categories.
+ * The approval levels a request must clear, derived from its asset types.
+ * A rule set on the type wins over the category, which wins over the class, so
+ * different classes can carry genuinely different approval requirements.
  * Roles already exercised during the reporting-line review are skipped so the
  * same manager is never asked twice.
  */
 export async function approvalStagesFor(requestId: string): Promise<{ role: Role; stage: number; label: string }[]> {
-  const rows = await query<{ required_role: string; stage: number; name: string }>(
-    `select distinct c.approval_role as required_role, c.approval_stage as stage, c.name
+  const rows = await query<{ required_role: string; stage: number; source: string }>(
+    `select distinct
+            coalesce(t.approval_role, c.approval_role, cl.approval_role) as required_role,
+            coalesce(t.approval_stage, c.approval_stage, cl.approval_stage, 1) as stage,
+            case when t.approval_role is not null then t.name
+                 when c.approval_role is not null then c.name
+                 else cl.name end as source
        from request_line rl
-       join asset_type at on at.id = rl.asset_type_id
-       join asset_category c on c.id = at.category_id
-      where rl.request_id = $1 and c.approval_role is not null and c.active = true
-      order by stage`,
+       join asset_type t on t.id = rl.asset_type_id
+       join asset_category c on c.id = t.category_id
+       join asset_class cl on cl.id = c.class_id
+      where rl.request_id = $1
+        and coalesce(t.approval_role, c.approval_role, cl.approval_role) is not null
+      order by stage, source`,
     [requestId],
   );
   if (!rows.length) return [];
@@ -614,14 +649,18 @@ export async function approvalStagesFor(requestId: string): Promise<{ role: Role
   const already = new Set(exercised.map((e) => e.role));
 
   const out: { role: Role; stage: number; label: string }[] = [];
-  const seen = new Set<string>();
+  const seenRoles = new Set<string>();
+  const seenStages = new Set<number>();
   for (const row of rows) {
-    if (already.has(row.required_role) || seen.has(row.required_role)) continue;
-    seen.add(row.required_role);
+    if (already.has(row.required_role) || seenRoles.has(row.required_role)) continue;
+    // request_approval allows one stage per number; the first source wins.
+    if (seenStages.has(Number(row.stage))) continue;
+    seenRoles.add(row.required_role);
+    seenStages.add(Number(row.stage));
     out.push({
       role: row.required_role as Role,
       stage: out.length + 1,
-      label: `${row.name} requires ${row.required_role.replace('_', ' ')} approval`,
+      label: `${row.source} requires ${row.required_role.replace('_', ' ')} approval`,
     });
   }
   return out;

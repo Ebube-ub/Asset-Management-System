@@ -59,8 +59,13 @@ import {
   configurationOverview,
   createAssetTypeRecord,
   createCategory,
+  createClass,
+  deleteAssetType,
+  deleteCategory,
+  deleteClass,
   updateAssetTypeRecord,
   updateCategory,
+  updateClass,
 } from './domains/assetconfig.js';
 import {
   completeDisposal,
@@ -148,10 +153,15 @@ api.get(
     const roomsList = await query(`select id, name, building, floor from room where active = true order by name`);
     const types = await query<Record<string, unknown>>(
       `select t.id, t.name, t.custody_kind as "custodyKind", t.category,
-              t.category_id as "categoryId", c.approval_role as "approvalRole",
-              c.min_request_role as "minRequestRole"
-         from asset_type t left join asset_category c on c.id = t.category_id
-        where t.active = true order by t.name`,
+              t.category_id as "categoryId", c.name as "categoryName",
+              cl.id as "classId", cl.name as "className",
+              coalesce(t.approval_role, c.approval_role, cl.approval_role) as "approvalRole",
+              coalesce(t.min_request_role, c.min_request_role, cl.min_request_role) as "minRequestRole"
+         from asset_type t
+         join asset_category c on c.id = t.category_id and c.active = true
+         join asset_class cl on cl.id = c.class_id and cl.active = true
+        where t.active = true
+        order by cl.name, c.name, t.name`,
     );
     const fields = await query<Record<string, unknown>>(
       `select id, asset_type_id as "assetTypeId", key, label, field_type as "fieldType", options,
@@ -159,8 +169,14 @@ api.get(
          from asset_attribute where active = true order by position, label`,
     );
     const categories = await query(
-      `select id, name, approval_role as "approvalRole", min_request_role as "minRequestRole"
-         from asset_category where active = true order by name`,
+      `select c.id, c.class_id as "classId", cl.name as "className", c.name,
+              c.approval_role as "approvalRole", c.min_request_role as "minRequestRole"
+         from asset_category c join asset_class cl on cl.id = c.class_id
+        where c.active = true and cl.active = true
+        order by cl.name, c.name`,
+    );
+    const classes = await query(
+      `select id, name, description from asset_class where active = true order by name`,
     );
     const staff = await query(
       `select id, name, email, job_title as "jobTitle", manager_id as "managerId", first_signed_in_at as "firstSignedInAt"
@@ -177,6 +193,7 @@ api.get(
         fields: fields.filter((f) => f.assetTypeId === t.id),
       })),
       assetCategories: categories,
+      assetClasses: classes,
       staff,
       vendors: vendors.map((v) => v.vendor_name),
       settings: {
@@ -429,6 +446,8 @@ api.get(
         q: req.query.q as string | undefined,
         status: req.query.status as string | undefined,
         assetTypeId: req.query.assetTypeId as string | undefined,
+        assetClassId: req.query.assetClassId as string | undefined,
+        categoryId: req.query.categoryId as string | undefined,
         holderId: req.query.holderId as string | undefined,
         roomId: req.query.roomId as string | undefined,
         scope: req.query.scope as 'all' | 'mine' | undefined,
@@ -665,6 +684,31 @@ api.get(
 );
 
 api.post(
+  '/asset-classes',
+  requireRoles('administrator'),
+  asyncHandler(async (req, res) => {
+    res.status(201).json(await createClass(req.body));
+  }),
+);
+
+api.patch(
+  '/asset-classes/:id',
+  requireRoles('administrator'),
+  asyncHandler(async (req, res) => {
+    res.json(await updateClass(req.params.id, req.body));
+  }),
+);
+
+// Deletion is refused when the record is still referenced; deactivate instead.
+api.delete(
+  '/asset-classes/:id',
+  requireRoles('administrator'),
+  asyncHandler(async (req, res) => {
+    res.json(await deleteClass(req.params.id));
+  }),
+);
+
+api.post(
   '/asset-categories',
   requireRoles('administrator'),
   asyncHandler(async (req, res) => {
@@ -677,6 +721,14 @@ api.patch(
   requireRoles('administrator'),
   asyncHandler(async (req, res) => {
     res.json(await updateCategory(req.params.id, req.body));
+  }),
+);
+
+api.delete(
+  '/asset-categories/:id',
+  requireRoles('administrator'),
+  asyncHandler(async (req, res) => {
+    res.json(await deleteCategory(req.params.id));
   }),
 );
 
@@ -693,6 +745,14 @@ api.patch(
   requireRoles('administrator'),
   asyncHandler(async (req, res) => {
     res.json(await updateAssetTypeRecord(req.params.id, req.body));
+  }),
+);
+
+api.delete(
+  '/asset-types/:id',
+  requireRoles('administrator'),
+  asyncHandler(async (req, res) => {
+    res.json(await deleteAssetType(req.params.id));
   }),
 );
 

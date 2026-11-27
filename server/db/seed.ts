@@ -50,15 +50,32 @@ const ROOMS = [
   { key: 'training', name: 'Training Room', building: 'I4nnova HQ', floor: '1' },
 ];
 
+const CLASSES = [
+  { name: 'IT Equipment', description: 'Computers, peripherals, networking and communications equipment.' },
+  { name: 'Office Equipment', description: 'General office machinery and presentation equipment.' },
+  { name: 'Furniture', description: 'Desks, seating and other workplace furniture.' },
+  { name: 'Facilities Equipment', description: 'Building services equipment such as air conditioning and power.' },
+  { name: 'Vehicles', description: 'Company vehicles and mobile plant.' },
+];
+
+const CATEGORIES = [
+  { key: 'computing', class: 'IT Equipment', name: 'Computing Devices', description: 'Laptops, desktops, monitors and phones.' },
+  { key: 'networking', class: 'IT Equipment', name: 'Networking Equipment', description: 'Switches, routers and access points.' },
+  { key: 'seating', class: 'Furniture', name: 'Office Seating', description: 'Chairs and stools for workstations.' },
+  { key: 'desks', class: 'Furniture', name: 'Desks and Tables', description: 'Workstations, standing desks and meeting tables.' },
+  { key: 'presentation', class: 'Office Equipment', name: 'Presentation Equipment', description: 'Projectors, screens and conference equipment.' },
+  { key: 'aircon', class: 'Facilities Equipment', name: 'Air Conditioning', description: 'Split and central cooling units.' },
+];
+
 const TYPES = [
-  { key: 'laptop', name: 'Dell Latitude 7440 Laptop', custody: 'person', category: 'IT Equipment' },
-  { key: 'monitor', name: 'HP EliteDisplay E24 Monitor', custody: 'person', category: 'IT Equipment' },
-  { key: 'phone', name: 'Cisco 8841 IP Phone', custody: 'person', category: 'IT Equipment' },
-  { key: 'chair', name: 'Herman Miller Aeron Chair', custody: 'person', category: 'Furniture' },
-  { key: 'desk', name: 'Motion Standing Desk', custody: 'person', category: 'Furniture' },
-  { key: 'projector', name: 'Epson EB-L200 Projector', custody: 'location', category: 'AV Equipment' },
-  { key: 'ac', name: 'Split Air Conditioner 1.5HP', custody: 'location', category: 'Facilities' },
-  { key: 'switch', name: 'Cisco Catalyst 24-Port Switch', custody: 'location', category: 'IT Equipment' },
+  { key: 'laptop', name: 'Dell Latitude 7440 Laptop', custody: 'person', category: 'Computing Devices' },
+  { key: 'monitor', name: 'HP EliteDisplay E24 Monitor', custody: 'person', category: 'Computing Devices' },
+  { key: 'phone', name: 'Cisco 8841 IP Phone', custody: 'person', category: 'Computing Devices' },
+  { key: 'chair', name: 'Herman Miller Aeron Chair', custody: 'person', category: 'Office Seating' },
+  { key: 'desk', name: 'Motion Standing Desk', custody: 'person', category: 'Desks and Tables' },
+  { key: 'projector', name: 'Epson EB-L200 Projector', custody: 'location', category: 'Presentation Equipment' },
+  { key: 'ac', name: 'Split Air Conditioner 1.5HP', custody: 'location', category: 'Air Conditioning' },
+  { key: 'switch', name: 'Cisco Catalyst 24-Port Switch', custody: 'location', category: 'Networking Equipment' },
 ];
 
 export async function seedIfEmpty(): Promise<void> {
@@ -73,6 +90,8 @@ async function seed() {
   const password = hashPassword('Password123!');
   const staff: Record<string, string> = {};
   const rooms: Record<string, string> = {};
+  const classes: Record<string, string> = {};
+  const categories: Record<string, string> = {};
   const types: Record<string, string> = {};
 
   for (const s of STAFF) {
@@ -110,11 +129,29 @@ async function seed() {
     ]);
   }
 
+  for (const c of CLASSES) {
+    classes[c.name] = crypto.randomUUID();
+    await query(`insert into asset_class (id, name, description) values ($1,$2,$3)`, [
+      classes[c.name],
+      c.name,
+      c.description,
+    ]);
+  }
+
+  for (const c of CATEGORIES) {
+    categories[c.name] = crypto.randomUUID();
+    await query(
+      `insert into asset_category (id, class_id, name, description) values ($1,$2,$3,$4)`,
+      [categories[c.name], classes[c.class], c.name, c.description],
+    );
+  }
+
   for (const t of TYPES) {
     types[t.key] = crypto.randomUUID();
     await query(
-      `insert into asset_type (id, name, custody_kind, category, description) values ($1,$2,$3,$4,$5)`,
-      [types[t.key], t.name, t.custody, t.category, null],
+      `insert into asset_type (id, name, custody_kind, category, category_id, description)
+       values ($1,$2,$3,$4,$5,$6)`,
+      [types[t.key], t.name, t.custody, t.category, categories[t.category], null],
     );
   }
 

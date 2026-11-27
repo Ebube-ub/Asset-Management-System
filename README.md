@@ -94,8 +94,9 @@ purchase recorded; asset issued, handed over, collected, returned; and stock lev
 
 `server/db/schema.sql` is the full, idempotent definition used for a new database. Changes to existing
 tables live in `server/db/migrations.ts`, applied once each and tracked in `_migration`; they only add
-columns/tables or relax a status constraint, and backfill categories from the existing `asset_type.category`
-text. Existing requests, assets and history are preserved.
+columns/tables or relax a status constraint, and backfill the Asset Class → Asset Category hierarchy from the
+existing `asset_type.category` text. Existing requests, assets and history are preserved; no configuration row is
+dropped.
 
 ## Interface behaviour
 
@@ -126,10 +127,12 @@ text. Existing requests, assets and history are preserved.
 - **Group requests.** A line manager can raise one request for several team members. Each unit is
   allocated to a person, keeps its own asset record, and the request follows the same review and
   approval workflow. Recipients must be in the manager's own team (enforced on the server).
-- **Configurable approval levels.** Asset Configuration assigns an approval role to a category. After the
-  reporting-line review, any category role not already exercised becomes a pending approval stage; the
-  request waits until a holder of that role approves it, then moves to the stock check. A category can also
-  set a minimum role to request it, and the server rejects anyone below that level even via the API.
+- **Configurable approval levels.** Asset Configuration is a four-level hierarchy: **Asset Class → Asset
+  Category → Asset Type → Individual Asset**. An approval rule (role plus order) and a minimum request role
+  can be set on a class, a category or a type; the most specific one wins, so different classes can carry
+  genuinely different approval requirements. After the reporting-line review, any outstanding rule that has
+  not already been exercised becomes a pending approval stage; the request waits until a holder of that role
+  approves it, then moves to the stock check. Restrictions are enforced on the server, even via the API.
 - Rejecting closes the request; a returned request stays open.
 - Priority ordering (Critical → High → Medium → Low → earliest raised) in the stock check, quotation
   queue and pending approvals; parked items marked due come first.
@@ -143,9 +146,12 @@ text. Existing requests, assets and history are preserved.
   configured period; the financial executive cannot decide their own request.
 - Purchase recording with automated over-budget comparison and a prominent warning; approved amounts
   are never silently changed.
-- **Asset Configuration** — categories, asset types, type-specific fields (text, number, dropdown, date,
-  yes/no; required flags; display order) and the approval/restriction level. Removing a field retires it
-  without deleting values already captured.
+- **Asset Configuration** — asset classes, categories inside them, asset types inside categories, and
+  type-specific fields (text, number, dropdown, date, yes/no; required flags; display order). Approval and
+  request restrictions can be set at class, category or type level and are inherited when left blank.
+  Configuration records linked to assets or request history cannot be deleted; they are deactivated instead and
+  stay readable on historical records while disappearing from new requests. Removing a field retires it without
+  deleting values already captured.
 - **Stock release and handover** — issuing names the authorising person (who must differ from the issuer
   and hold an authorising role; configurable in Settings) and records issuer, authoriser, recipient,
   date and handover state on `asset_release`. Issuing is not collecting: the stock manager records
@@ -216,5 +222,6 @@ maintenance management. Purchasing is manual; the system records the outcome.
   justification and business impact from whoever raises or escalates them.
 - Approvals → **Purchase Request** in navigation; the queue shows reporting-line reviews and category
   approval levels separately.
-- Asset Types → **Asset Configuration** (categories, types, fields, approval and request restrictions).
+- Asset Types → **Asset Configuration** (asset classes, categories, types, fields, approval and request
+  restrictions).
 - Charts use a distinct colour per series and per status, with labels, legends and readable values.
