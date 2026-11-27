@@ -249,6 +249,7 @@ input[type='date']::-webkit-calendar-picker-indicator {
 
 .sidebar-tab-active {
   position: relative;
+  width: calc(100% + 0.85rem);
   margin-right: -0.85rem;
   padding-left: 1.15rem;
   padding-right: 1.25rem;
