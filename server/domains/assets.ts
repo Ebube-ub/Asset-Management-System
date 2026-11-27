@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import { one, query, withTransaction } from '../db/index.js';
 import { ApiError, parseBody } from '../lib/http.js';
-import { loadUser, type CurrentUser } from '../lib/auth.js';
-import { addAssetHistory, addRequestHistory, iso, nextAssetRef, recomputeRequestStatus, uid } from '../lib/repo.js';
+import type { CurrentUser } from '../lib/auth.js';
+import { addAssetHistory, addRequestHistory, iso, nextAssetRef, uid } from '../lib/repo.js';
+import { getSetting } from '../lib/repo.js';
+import { emailsForStaff, mailBody, sendMail, appUrl } from '../lib/mailer.js';
+import { saveAttributeValues } from './assetconfig.js';
 
 export type AssetFilters = {
   q?: string;
@@ -74,9 +77,9 @@ export async function listAssets(user: CurrentUser, filters: AssetFilters) {
 
   const listParams = [...params, pageSize, (page - 1) * pageSize];
   const rows = await query<Record<string, unknown>>(
-    `select a.id, a.ref, a.serial_number as "serialNumber", a.condition, a.status,
-            a.registered_at as "registeredAt",
-            at.name as "assetTypeName", at.custody_kind as "custodyKind", at.id as "assetTypeId",
+    `select a.id, a.ref, a.serial_number as "serialNumber", a.condition, a.status, a.photo_url as "photoUrl",
+            a.handover_status as "handoverStatus", a.registered_at as "registeredAt",
+            at.name as "assetTypeName", at.custody_kind as "custodyKind", at.id as "assetTypeId", at.category,
             s.name as "holderName", s.id as "holderId", rm.name as "roomName", rm.id as "roomId",
             (select d.id from disposal d where d.asset_id = a.id and d.status in ('pending','approved') limit 1) as "disposalId",
             (select count(*) from asset_movement m where m.asset_id = a.id and m.status = 'pending')::int as "pendingMovements"
@@ -101,12 +104,13 @@ export async function listAssets(user: CurrentUser, filters: AssetFilters) {
 export async function getAsset(assetId: string) {
   const asset = await one<Record<string, unknown>>(
     `select a.id, a.ref, a.serial_number as "serialNumber", a.condition, a.status, a.notes,
+            a.photo_url as "photoUrl", a.handover_status as "handoverStatus",
             a.registered_at as "registeredAt", a.asset_type_id as "assetTypeId",
-            at.name as "assetTypeName", at.custody_kind as "custodyKind", at.category,
+            at.name as "assetTypeName", at.custody_kind as "custodyKind", at.category, at.category_id as "categoryId",
             s.name as "holderName", s.id as "holderId", s.email as "holderEmail",
             rm.name as "roomName", rm.id as "roomId",
             p.vendor_name as "purchaseVendor", p.cost::float8 as "purchaseCost", p.recorded_at as "purchaseDate",
-            p.receipt_url as "receiptUrl", p.receipt_name as "receiptName",
+            p.receipt_url as "receiptUrl", p.receipt_name as "receiptName", p.photo_url as "purchasePhotoUrl",
             r.ref as "requestRef", r.id as "requestId",
             rs.name as "registeredByName"
        from asset a
@@ -131,6 +135,15 @@ export async function getAsset(assetId: string) {
     [assetId],
   );
 
+  const attributes = await query<Record<string, unknown>>(
+    `select f.id, f.key, f.label, f.field_type as "fieldType", f.options, f.required, v.value
+       from asset_attribute f
+       left join asset_attribute_value v on v.attribute_id = f.id and v.asset_id = $1
+      where f.asset_type_id = $2 and f.active = true
+      order by f.position, f.label`,
+    [assetId, asset.assetTypeId],
+  );
+
   const movements = await query<Record<string, unknown>>(
     `select m.id, m.kind, m.status, m.requested_at as "requestedAt", m.confirmed_at as "confirmedAt", m.note,
             rb.name as "requestedByName", cb.name as "confirmedByName",
@@ -141,6 +154,21 @@ export async function getAsset(assetId: string) {
        left join staff ts on ts.id = m.to_staff_id
        left join room tr on tr.id = m.to_room_id
       where m.asset_id = $1 order by m.requested_at desc`,
+    [assetId],
+  );
+
+  const releases = await query<Record<string, unknown>>(
+    `select rel.id, rel.released_at as "releasedAt", rel.handover_status as "handoverStatus",
+            rel.handover_at as "handoverAt", rel.note,
+            au.name as "authorizedName", ib.name as "issuedByName", hb.name as "handoverByName",
+            rs.name as "recipientName", rm.name as "roomName"
+       from asset_release rel
+       left join staff au on au.id = rel.authorized_by
+       left join staff ib on ib.id = rel.issued_by
+       left join staff hb on hb.id = rel.handover_by
+       left join staff rs on rs.id = rel.recipient_staff_id
+       left join room rm on rm.id = rel.room_id
+      where rel.asset_id = $1 order by rel.released_at desc`,
     [assetId],
   );
 
@@ -158,7 +186,13 @@ export async function getAsset(assetId: string) {
   return {
     asset: { ...asset, registeredAt: iso(asset.registeredAt), purchaseDate: iso(asset.purchaseDate) },
     history: history.map((h) => ({ ...h, at: iso(h.at) })),
+    attributes: attributes.map((a) => ({ ...a, options: (a.options as string[]) ?? [] })),
     movements: movements.map((m) => ({ ...m, requestedAt: iso(m.requestedAt), confirmedAt: iso(m.confirmedAt) })),
+    releases: releases.map((r) => ({
+      ...r,
+      releasedAt: iso(r.releasedAt),
+      handoverAt: iso(r.handoverAt),
+    })),
     disposal: disposal
       ? {
           ...disposal,
@@ -177,6 +211,8 @@ export const registerAssetSchema = z.object({
   holderStaffId: z.string().uuid().optional().nullable(),
   roomId: z.string().uuid().optional().nullable(),
   notes: z.string().trim().max(1000).optional().nullable(),
+  photoUrl: z.string().max(500).optional().nullable(),
+  attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
 });
 
 /** FR21: register an asset found in the store, with no request or purchase behind it. */
@@ -201,8 +237,9 @@ export async function registerAsset(user: CurrentUser, body: unknown) {
 
   await withTransaction(async (tx) => {
     await tx.query(
-      `insert into asset (id, ref, asset_type_id, serial_number, condition, status, holder_staff_id, room_id, registered_by, notes)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      `insert into asset (id, ref, asset_type_id, serial_number, condition, status, holder_staff_id, room_id,
+                          registered_by, notes, photo_url)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [
         id,
         ref,
@@ -214,8 +251,10 @@ export async function registerAsset(user: CurrentUser, body: unknown) {
         assigned && type.custody_kind === 'location' ? input.roomId : null,
         user.id,
         input.notes ?? null,
+        input.photoUrl ?? null,
       ],
     );
+    await saveAttributeValues(tx, id, input.assetTypeId, input.attributes);
     const holderName = input.holderStaffId
       ? (await tx.one<{ name: string }>(`select name from staff where id = $1`, [input.holderStaffId]))?.name
       : input.roomId
@@ -231,13 +270,62 @@ export async function registerAsset(user: CurrentUser, body: unknown) {
   return { id, ref };
 }
 
+export const updateAssetSchema = z.object({
+  serialNumber: z.string().trim().max(100).optional().nullable(),
+  condition: z.enum(['new', 'good', 'fair', 'poor']).optional(),
+  notes: z.string().trim().max(1000).optional().nullable(),
+  photoUrl: z.string().max(500).optional().nullable(),
+  attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+});
+
+/** Complete or correct an asset's details, including its photo and type-specific fields. */
+export async function updateAsset(user: CurrentUser, assetId: string, body: unknown) {
+  const input = parseBody(updateAssetSchema, body);
+  const asset = await one<{ id: string; ref: string; asset_type_id: string }>(
+    `select id, ref, asset_type_id from asset where id = $1`,
+    [assetId],
+  );
+  if (!asset) throw new ApiError(404, 'Asset not found.');
+
+  await withTransaction(async (tx) => {
+    await tx.query(
+      `update asset set serial_number = case when $2 then $3 else serial_number end,
+                        condition = coalesce($4, condition),
+                        notes = case when $5 then $6 else notes end,
+                        photo_url = case when $7 then $8 else photo_url end
+        where id = $1`,
+      [
+        assetId,
+        input.serialNumber !== undefined,
+        input.serialNumber ?? null,
+        input.condition ?? null,
+        input.notes !== undefined,
+        input.notes ?? null,
+        input.photoUrl !== undefined,
+        input.photoUrl ?? null,
+      ],
+    );
+    if (input.attributes) {
+      await saveAttributeValues(tx, assetId, asset.asset_type_id, input.attributes);
+    }
+  });
+
+  await addAssetHistory({
+    assetId,
+    event: 'AssetDetailsUpdated',
+    byStaffId: user.id,
+    note: input.photoUrl ? 'Details updated, including the asset photo.' : 'Asset details updated.',
+  });
+  return getAsset(assetId);
+}
+
 const destinationSchema = z.object({
   holderStaffId: z.string().uuid().optional().nullable(),
   roomId: z.string().uuid().optional().nullable(),
   note: z.string().trim().max(500).optional().nullable(),
+  authorizedById: z.string().uuid().optional().nullable(),
 });
 
-/** Returns a destination name and validates it against the type's custody setting. */
 async function resolveDestination(
   custodyKind: string,
   typeName: string,
@@ -265,6 +353,38 @@ function currentHolderLabel(asset: Record<string, unknown>): string | null {
   return (asset.holderName as string) ?? (asset.roomName as string) ?? null;
 }
 
+/**
+ * Releasing an asset from stock needs a second pair of eyes. The issuer names
+ * the person who authorised the release; the pair is recorded on the asset, the
+ * release row and the history.
+ */
+export async function resolveReleaseAuthorization(
+  issuer: CurrentUser,
+  authorizedById: string | null | undefined,
+): Promise<{ authorizedBy: string; required: boolean }> {
+  const mode = await getSetting('stock_release_authorization', 'required');
+  if (mode !== 'required') {
+    const fallback = authorizedById ?? issuer.id;
+    return { authorizedBy: fallback, required: false };
+  }
+  if (!authorizedById) throw new ApiError(400, 'Name the person who authorised this release from stock.');
+  if (authorizedById === issuer.id) {
+    throw new ApiError(400, 'A release must be authorised by someone other than the person issuing it.');
+  }
+  const authorizer = await one<{ id: string; name: string; left_at: string | null; roles: string[] }>(
+    `select s.id, s.name, s.left_at,
+            coalesce((select array_agg(sr.role) from staff_role sr where sr.staff_id = s.id), '{}') as roles
+       from staff s where s.id = $1`,
+    [authorizedById],
+  );
+  if (!authorizer || authorizer.left_at) throw new ApiError(400, 'Choose a valid authoriser.');
+  const allowed = ['stock_manager', 'administrator', 'line_manager', 'financial_executive'];
+  if (!authorizer.roles.some((r) => allowed.includes(r))) {
+    throw new ApiError(403, `${authorizer.name} does not hold a role that can authorise a stock release.`);
+  }
+  return { authorizedBy: authorizer.id, required: true };
+}
+
 export async function assignAsset(user: CurrentUser, assetId: string, body: unknown) {
   const input = parseBody(destinationSchema, body);
   const asset = await one<Record<string, unknown>>(
@@ -278,26 +398,99 @@ export async function assignAsset(user: CurrentUser, assetId: string, body: unkn
   if (asset.status === 'assigned') throw new ApiError(409, 'This asset is already assigned. Transfer it instead.');
   if (asset.status === 'awaiting_disposal') throw new ApiError(400, 'This asset is awaiting disposal approval.');
   const destination = await resolveDestination(String(asset.custodyKind), String(asset.assetTypeName), input);
-
-  await query(
-    `update asset set status = 'assigned', holder_staff_id = $2, room_id = $3 where id = $1`,
-    [assetId, destination.holderId, destination.roomId],
+  const authorization = await resolveReleaseAuthorization(
+    user,
+    (input as { authorizedById?: string }).authorizedById,
   );
+
+  await withTransaction(async (tx) => {
+    await tx.query(
+      `update asset set status = 'assigned', holder_staff_id = $2, room_id = $3, handover_status = 'awaiting_handover'
+        where id = $1`,
+      [assetId, destination.holderId, destination.roomId],
+    );
+    await tx.query(
+      `insert into asset_release (id, asset_id, recipient_staff_id, room_id, authorized_by, issued_by, note)
+       values ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        uid(),
+        assetId,
+        destination.holderId,
+        destination.roomId,
+        authorization.authorizedBy,
+        user.id,
+        input.note ?? null,
+      ],
+    );
+  });
   await addAssetHistory({
     assetId,
-    event: 'AssetAssigned',
+    event: 'AssetIssued',
     toHolder: destination.label,
     byStaffId: user.id,
-    note: input.note || 'Assigned from stock.',
+    note: `Issued from stock. Release authorised by ${await staffLabel(authorization.authorizedBy)}. Awaiting handover.`,
   });
-  return { ok: true };
+  return { ok: true, handoverStatus: 'awaiting_handover' };
+}
+
+async function staffLabel(id: string): Promise<string> {
+  const row = await one<{ name: string }>(`select name from staff where id = $1`, [id]);
+  return row?.name ?? 'the authorised approver';
 }
 
 export const movementSchema = z.object({
   holderStaffId: z.string().uuid().optional().nullable(),
   roomId: z.string().uuid().optional().nullable(),
   note: z.string().trim().max(500).optional().nullable(),
+  authorizedById: z.string().uuid().optional().nullable(),
 });
+
+/** Confirm an issued asset physically reached its holder (handed over or collected). */
+export async function confirmHandover(user: CurrentUser, assetId: string, body: unknown) {
+  const input = parseBody(
+    z.object({
+      method: z.enum(['handed_over', 'collected']),
+      note: z.string().trim().max(500).optional().nullable(),
+    }),
+    body,
+  );
+  const asset = await one<Record<string, unknown>>(
+    `select a.id, a.ref, a.status, a.handover_status as "handoverStatus",
+            s.name as "holderName", rm.name as "roomName"
+       from asset a
+       left join staff s on s.id = a.holder_staff_id
+       left join room rm on rm.id = a.room_id
+      where a.id = $1`,
+    [assetId],
+  );
+  if (!asset) throw new ApiError(404, 'Asset not found.');
+  if (asset.status !== 'assigned') throw new ApiError(400, 'Only an issued asset can be handed over.');
+  if (asset.handoverStatus && asset.handoverStatus !== 'awaiting_handover') {
+    throw new ApiError(409, `This asset is already recorded as ${String(asset.handoverStatus).replace('_', ' ')}.`);
+  }
+
+  await withTransaction(async (tx) => {
+    await tx.query(`update asset set handover_status = $2 where id = $1`, [assetId, input.method]);
+    await tx.query(
+      `update asset_release
+          set handover_status = $2, handover_at = now(), handover_by = $3
+        where id = (select id from asset_release where asset_id = $1 order by released_at desc limit 1)`,
+      [assetId, input.method, user.id],
+    );
+  });
+  await addAssetHistory({
+    assetId,
+    event: input.method === 'collected' ? 'AssetCollected' : 'AssetHandedOver',
+    toHolder: currentHolderLabel(asset),
+    byStaffId: user.id,
+    note: input.note
+      ? input.note
+      : input.method === 'collected'
+        ? 'Confirmed by the stock manager: collected by the holder.'
+        : 'Confirmed by the stock manager: handed over to the holder.',
+  });
+  return { ok: true };
+}
 
 /** A transfer or return is only effective once the stock manager confirms it. */
 export async function requestMovement(
@@ -322,6 +515,9 @@ export async function requestMovement(
 
   const isStockManager = user.roles.includes('stock_manager') || user.roles.includes('administrator');
   const isHolder = asset.holderId === user.id;
+  if (!isStockManager && !isHolder) {
+    throw new ApiError(403, 'Only the holder or the stock manager can transfer or return this asset.');
+  }
 
   let destination: { holderId: string | null; roomId: string | null; label: string } | null = null;
   if (kind === 'transfer') {
@@ -352,13 +548,17 @@ export async function requestMovement(
       ],
     );
     if (autoConfirm) {
-      await tx.query(`update asset set status = 'available', holder_staff_id = null, room_id = null where id = $1`, [assetId]);
+      await tx.query(
+        `update asset set status = 'available', holder_staff_id = null, room_id = null, handover_status = 'returned'
+          where id = $1`,
+        [assetId],
+      );
       if (kind === 'transfer' && destination) {
-        await tx.query(`update asset set status = 'assigned', holder_staff_id = $2, room_id = $3 where id = $1`, [
-          assetId,
-          destination.holderId,
-          destination.roomId,
-        ]);
+        await tx.query(
+          `update asset set status = 'assigned', holder_staff_id = $2, room_id = $3, handover_status = 'awaiting_handover'
+            where id = $1`,
+          [assetId, destination.holderId, destination.roomId],
+        );
       }
       await tx.query(
         `insert into asset_history (id, asset_id, event, from_holder, to_holder, by_staff_id, note)
@@ -390,9 +590,29 @@ export async function requestMovement(
         (input.note ? input.note + ' ' : '') + 'Awaiting stock manager confirmation.',
       ],
     );
+    // The stock manager hears about every return or transfer immediately.
+    for (const to of await emailsForStaff((await stockManagerIds()).concat(destination?.holderId ?? []))) {
+      void sendMail({
+        to,
+        subject: `${asset.ref} — ${kind} awaiting confirmation`,
+        body: mailBody([
+          `${user.name} requested a ${kind} for ${asset.ref} (${asset.assetTypeName}).`,
+          'Confirm it in Transfers & Returns so stock stays accurate.',
+          appUrl('/transfers'),
+        ]),
+        dedupeKey: `asset:${assetId}:${kind}:${movementId}`,
+      });
+    }
   }
 
   return { id: movementId, status: autoConfirm ? 'confirmed' : 'pending' };
+}
+
+async function stockManagerIds(): Promise<string[]> {
+  const rows = await query<{ id: string }>(
+    `select distinct staff_id as id from staff_role where role in ('stock_manager','administrator')`,
+  );
+  return rows.map((r) => r.id);
 }
 
 export async function movements(user: CurrentUser, kind: 'transfer' | 'return' | 'all') {
@@ -405,7 +625,7 @@ export async function movements(user: CurrentUser, kind: 'transfer' | 'return' |
   const rows = await query<Record<string, unknown>>(
     `select m.id, m.kind, m.status, m.requested_at as "requestedAt", m.confirmed_at as "confirmedAt", m.note,
             rb.name as "requestedByName", cb.name as "confirmedByName",
-            a.id as "assetId", a.ref, at.name as "assetTypeName",
+            a.id as "assetId", a.ref, a.handover_status as "handoverStatus", at.name as "assetTypeName",
             a.holder_staff_id as "currentHolderId",
             ts.name as "toStaffName", tr.name as "toRoomName",
             cs.name as "currentHolderName", cr.name as "currentRoomName"
@@ -437,7 +657,8 @@ export async function movements(user: CurrentUser, kind: 'transfer' | 'return' |
 
 export async function confirmMovement(user: CurrentUser, movementId: string, action: 'confirm' | 'reject') {
   const movement = await one<Record<string, unknown>>(
-    `select m.*, a.ref, a.status as "assetStatus", a.holder_staff_id as "holderId", a.room_id as "roomId",
+    `select m.*, a.ref, a.request_item_id as "request_item_id", a.status as "assetStatus",
+            a.holder_staff_id as "holderId", a.room_id as "roomId",
             at.name as "assetTypeName", at.custody_kind as "custodyKind",
             s.name as "holderName", rm.name as "roomName"
        from asset_movement m
@@ -478,22 +699,24 @@ export async function confirmMovement(user: CurrentUser, movementId: string, act
       `update asset_movement set status = 'confirmed', confirmed_by = $2, confirmed_at = now() where id = $1`,
       [movementId, user.id],
     );
-    await tx.query(`update asset set status = 'available', holder_staff_id = null, room_id = null where id = $1`, [
-      movement.asset_id,
-    ]);
+    await tx.query(
+      `update asset set status = 'available', holder_staff_id = null, room_id = null, handover_status = 'returned'
+        where id = $1`,
+      [movement.asset_id],
+    );
     if (movement.kind === 'transfer') {
       if (movement.custodyKind === 'person') {
         if (!movement.to_staff_id) throw new ApiError(400, 'The transfer has no destination.');
-        await tx.query(`update asset set status = 'assigned', holder_staff_id = $2 where id = $1`, [
-          movement.asset_id,
-          movement.to_staff_id,
-        ]);
+        await tx.query(
+          `update asset set status = 'assigned', holder_staff_id = $2, handover_status = 'awaiting_handover' where id = $1`,
+          [movement.asset_id, movement.to_staff_id],
+        );
       } else {
         if (!movement.to_room_id) throw new ApiError(400, 'The transfer has no destination room.');
-        await tx.query(`update asset set status = 'assigned', room_id = $2 where id = $1`, [
-          movement.asset_id,
-          movement.to_room_id,
-        ]);
+        await tx.query(
+          `update asset set status = 'assigned', room_id = $2, handover_status = 'awaiting_handover' where id = $1`,
+          [movement.asset_id, movement.to_room_id],
+        );
       }
     }
     await tx.query(
@@ -510,17 +733,47 @@ export async function confirmMovement(user: CurrentUser, movementId: string, act
       ],
     );
   });
+
+  // A return puts the asset back in stock, but it is never re-issued automatically.
+  if (movement.kind === 'return') {
+    await addAssetHistory({
+      assetId: String(movement.asset_id),
+      event: 'AssetReturnedToStock',
+      fromHolder: currentHolderLabel(movement),
+      byStaffId: user.id,
+      note: 'Received by the stock manager and available for re-issue. Previous holder kept in history.',
+    });
+    if (movement.request_item_id) {
+      const item = await one<{ request_id: string }>(
+        `select rl.request_id from request_item ri join request_line rl on rl.id = ri.request_line_id where ri.id = $1`,
+        [movement.request_item_id],
+      );
+      if (item) {
+        await addRequestHistory({
+          requestId: item.request_id,
+          itemId: String(movement.request_item_id),
+          event: 'ItemReturned',
+          byStaffId: user.id,
+          note: `${movement.ref} returned to stock and received by the stock manager.`,
+        });
+      }
+    }
+  }
+
   return { ok: true };
 }
 
 export async function assetTypesList(includeInactive = false) {
   const rows = await query<Record<string, unknown>>(
-    `select at.id, at.name, at.custody_kind as "custodyKind", at.category, at.description, at.active,
-            at.created_at as "createdAt",
+    `select at.id, at.name, at.custody_kind as "custodyKind", at.category, at.category_id as "categoryId",
+            at.description, at.active, at.created_at as "createdAt",
+            c.approval_role as "approvalRole", c.min_request_role as "minRequestRole",
+            (select count(*) from asset_attribute f where f.asset_type_id = at.id and f.active = true)::int as "attributeCount",
             (select count(*) from asset a where a.asset_type_id = at.id and a.status = 'available')::int as "availableCount",
             (select count(*) from asset a where a.asset_type_id = at.id and a.status = 'assigned')::int as "assignedCount",
             (select count(*) from asset a where a.asset_type_id = at.id)::int as "totalCount"
        from asset_type at
+       left join asset_category c on c.id = at.category_id
       ${includeInactive ? '' : 'where at.active = true'}
       order by at.name`,
   );

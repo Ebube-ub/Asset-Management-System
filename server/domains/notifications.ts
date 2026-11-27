@@ -6,6 +6,11 @@ import { iso } from '../lib/repo.js';
 const EVENT_LABELS: Record<string, string> = {
   RequestRaised: 'Request raised',
   RequestPassedReview: 'Passed to the next reviewer',
+  RequestReturned: 'Returned for editing',
+  RequestResubmitted: 'Request resubmitted',
+  RequestEdited: 'Request edited',
+  ApprovalRequested: 'Approval requested',
+  ApprovalPassed: 'Approval given',
   RequestRejected: 'Request rejected',
   RequestCancelled: 'Request cancelled',
   RequestCompleted: 'Request completed',
@@ -19,8 +24,14 @@ const EVENT_LABELS: Record<string, string> = {
   PurchaseRecorded: 'Purchase recorded',
   AssetRegistered: 'Asset registered',
   AssetAssigned: 'Asset assigned',
+  AssetIssued: 'Asset issued from stock',
+  AssetHandedOver: 'Asset handed over',
+  AssetCollected: 'Asset collected',
+  AssetDetailsUpdated: 'Asset details updated',
   AssetTransferred: 'Asset transferred',
   AssetReturned: 'Asset returned',
+  AssetReturnedToStock: 'Asset returned to stock',
+  ItemReturned: 'Item returned by the holder',
   ReturnRequested: 'Return requested',
   TransferRequested: 'Transfer requested',
   DisposalProposed: 'Disposal proposed',
@@ -54,6 +65,8 @@ export async function notificationFeed(user: CurrentUser) {
          join request r on r.id = h.request_id
          left join staff s on s.id = h.by_staff_id
         where $2 or r.raised_by = $1 or r.raised_for = $1 or r.current_reviewer_id = $1 or h.by_staff_id = $1
+           or exists (select 1 from request_item ri join request_line rl on rl.id = ri.request_line_id
+                       where rl.request_id = r.id and ri.recipient_staff_id = $1)
        union all
        select h.id, 'asset' as kind, h.event, h.at, h.note,
               s.name as actor, a.ref, null::uuid as "requestId", a.id as "assetId"
@@ -94,6 +107,7 @@ export async function notificationFeed(user: CurrentUser) {
        (select count(*)::int from request_item where status = 'awaiting_decision') as "decisions",
        (select count(*)::int from request_item where status = 'approved') as "purchases",
        (select count(*)::int from asset_movement where status = 'pending') as "movements",
+       (select count(*)::int from asset where status = 'assigned' and handover_status = 'awaiting_handover') as "handovers",
        (select count(*)::int from disposal where status = 'pending') as "disposals"`,
     [user.id],
   );
@@ -112,6 +126,7 @@ export async function notificationFeed(user: CurrentUser) {
     add('quotes', 'Quotations outstanding', 'Items waiting for vendor quotations', counts?.quotations, '/quotations');
     add('purchases', 'Purchases to record', 'Approved items still to buy', counts?.purchases, '/purchases');
     add('movements', 'Transfers and returns', 'Movements awaiting confirmation', counts?.movements, '/transfers');
+    add('handovers', 'Handovers to record', 'Issued assets not yet handed over or collected', counts?.handovers, '/stock');
     add('disposals', 'Disposals to decide', 'Assets proposed for disposal', counts?.disposals, '/disposals');
   }
   if (role('administrator') || role('financial_executive')) {

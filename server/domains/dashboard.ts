@@ -27,6 +27,8 @@ export async function dashboard(user: CurrentUser) {
   const requestCounts = await one<Record<string, number>>(
     `select
        count(*) filter (where status = 'under_review')::int as "pendingReview",
+       count(*) filter (where status = 'awaiting_approval')::int as "awaitingApproval",
+       count(*) filter (where status = 'returned')::int as "returned",
        count(*) filter (where status = 'in_progress')::int as "inProgress",
        count(*) filter (where status = 'raised')::int as "raised",
        count(*) filter (where status = 'fulfilled')::int as "fulfilled",
@@ -78,6 +80,8 @@ export async function dashboard(user: CurrentUser) {
   const myStatusCounts = await one<Record<string, number>>(
     `select
        count(*) filter (where status = 'under_review')::int as "underReview",
+       count(*) filter (where status = 'awaiting_approval')::int as "awaitingApproval",
+       count(*) filter (where status = 'returned')::int as "returned",
        count(*) filter (where status = 'in_progress')::int as "inProgress",
        count(*) filter (where status = 'fulfilled')::int as "fulfilled",
        count(*) filter (where status in ('partly_fulfilled','closed','rejected','cancelled'))::int as "closed",
@@ -87,8 +91,12 @@ export async function dashboard(user: CurrentUser) {
   );
 
   const reviewQueue = await one<{ count: number }>(
-    `select count(*)::int as count from request where current_reviewer_id = $1 and status = 'under_review'`,
-    [user.id],
+    `select
+       (select count(*)::int from request where current_reviewer_id = $1 and status = 'under_review')
+       + (select count(*)::int from request_approval ra join request r on r.id = ra.request_id
+           where ra.status = 'pending' and r.status = 'awaiting_approval'
+             and ra.required_role = any($2::text[])) as count`,
+    [user.id, user.roles],
   );
 
   const teamSize = await one<{ count: number }>(
@@ -134,9 +142,10 @@ export async function dashboard(user: CurrentUser) {
   );
 
   const topCategories = await query<Record<string, unknown>>(
-    `select at.category as name, count(a.id)::int as count
+    `select coalesce(c.name, at.category) as name, count(a.id)::int as count
        from asset a join asset_type at on at.id = a.asset_type_id
-      group by at.category order by count desc limit 5`,
+       left join asset_category c on c.id = at.category_id
+      group by coalesce(c.name, at.category) order by count desc limit 5`,
   );
 
   const monthly = await query<Record<string, unknown>>(

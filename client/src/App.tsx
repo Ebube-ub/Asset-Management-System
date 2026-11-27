@@ -23,7 +23,7 @@ import { StaffPage } from './pages/Staff';
 import { StaffDetailPage } from './pages/StaffDetail';
 import { OrganisationPage } from './pages/Organisation';
 import { RoomsPage } from './pages/Rooms';
-import { AssetTypesPage } from './pages/AssetTypes';
+import { AssetConfigurationPage } from './pages/AssetConfiguration';
 import { ReportsPage } from './pages/Reports';
 import { SettingsPage } from './pages/Settings';
 import { ProfilePage } from './pages/Profile';
@@ -75,6 +75,7 @@ export function App() {
         <Route path="/requests" element={<RequestsPage />} />
         <Route path="/requests/new" element={<NewRequestPage />} />
         <Route path="/requests/:id" element={<RequestDetailPage />} />
+        <Route path="/requests/:id/edit" element={<NewRequestPage />} />
         <Route path="/approvals" element={<Guard area="approvals"><ApprovalsPage /></Guard>} />
         <Route path="/stock" element={<Guard area="stock"><StockPage /></Guard>} />
         <Route path="/quotations" element={<Guard area="quotations"><QuotationsPage /></Guard>} />
@@ -90,7 +91,15 @@ export function App() {
         <Route path="/staff/:id" element={<Guard area="staff"><StaffDetailPage /></Guard>} />
         <Route path="/organisation" element={<Guard area="organisation"><OrganisationPage /></Guard>} />
         <Route path="/rooms" element={<Guard area="rooms"><RoomsPage /></Guard>} />
-        <Route path="/asset-types" element={<Guard area="asset-types"><AssetTypesPage /></Guard>} />
+        <Route
+          path="/asset-configuration"
+          element={
+            <Guard area="asset-configuration">
+              <AssetConfigurationPage />
+            </Guard>
+          }
+        />
+        <Route path="/asset-types" element={<Navigate to="/asset-configuration" replace />} />
         <Route path="/reports" element={<Guard area="reports"><ReportsPage /></Guard>} />
         <Route path="/settings" element={<Guard area="settings"><SettingsPage /></Guard>} />
         <Route path="/profile" element={<ProfilePage />} />

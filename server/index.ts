@@ -7,12 +7,17 @@ import { api } from './routes.js';
 import { errorHandler, notFound } from './lib/http.js';
 import { attachUser } from './lib/auth.js';
 import { seedIfEmpty } from './db/seed.js';
+import { applyMigrations } from './db/migrations.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
 async function main() {
   await initDb();
+  // Demo/first-run data first, then the incremental migrations so that a fresh
+  // database and an upgraded one follow exactly the same code path.
   await seedIfEmpty();
+  const migrated = await applyMigrations();
+  if (migrated.length) console.log(`Applied ${migrated.length} migration(s): ${migrated.join(', ')}`);
 
   const app = express();
   app.disable('x-powered-by');

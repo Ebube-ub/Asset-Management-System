@@ -65,8 +65,9 @@ export function RequestsPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-[22px] font-bold tracking-tight text-ink">Requests</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Every request carries a justification, a priority and its full review history.
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">
+            Every request carries a justification, a priority and its full history — from submission through review,
+            approvals and handover.
           </p>
         </div>
         <Button onClick={() => navigate('/requests/new')} icon={<Plus className="h-4 w-4" />}>
@@ -157,14 +158,21 @@ export function RequestsPage() {
                 {query.data.rows.map((r: any) => (
                   <tr key={r.id} className="cursor-pointer transition-colors hover:bg-slate-50" onClick={() => navigate(`/requests/${r.id}`)}>
                     <Td>
-                      <Link to={`/requests/${r.id}`} className="text-xs font-semibold text-brand-600 hover:underline">
-                        {r.ref}
-                      </Link>
+                      <div className="flex items-center gap-1.5">
+                        <Link to={`/requests/${r.id}`} className="text-xs font-semibold text-brand-600 hover:underline">
+                          {r.ref}
+                        </Link>
+                        {r.isGroup ? (
+                          <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[9px] font-semibold text-violet-700 ring-1 ring-violet-200">
+                            Group
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="max-w-[260px] truncate text-[11px] text-slate-400">{r.justification}</p>
                     </Td>
                     <Td>
                       <p className="text-xs font-medium text-ink">{r.raisedForName}</p>
-                      <p className="text-[11px] text-slate-400">by {r.raisedByName}</p>
+                      <p className="text-[11px] text-slate-400">{r.isGroup ? `${r.raisedByName} (group)` : `by ${r.raisedByName}`}</p>
                     </Td>
                     <Td>
                       <p className="max-w-[180px] truncate text-xs text-slate-600">{r.items}</p>
@@ -185,7 +193,8 @@ export function RequestsPage() {
         )}
       </Card>
       <p className="text-[11px] text-slate-400">
-        Signed in as {user?.name}. A request that has been rejected is closed; raise a new request if the need remains.
+        Signed in as {user?.name}. A rejected request is closed, but a returned one stays open — edit it and resubmit from
+        the request page.
       </p>
     </div>
   );

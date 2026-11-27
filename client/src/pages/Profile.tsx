@@ -127,7 +127,7 @@ export function ProfilePage() {
       <Card>
         <CardHeader title="My requests" subtitle="Raised by or for you" action={<Badge className="bg-slate-100 text-slate-600 ring-slate-200">{requests.length}</Badge>} />
         {requests.length === 0 ? (
-          <EmptyState title="You have not raised any requests" message="Use New request to ask for equipment." />
+          <EmptyState title="You have not raised any requests" message="Use New request to request an item." />
         ) : (
           <Table>
             <thead>

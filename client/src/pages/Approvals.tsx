@@ -19,9 +19,11 @@ export function ApprovalsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-[22px] font-bold tracking-tight text-ink">Approvals</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Requests that have reached you through the reporting line. Passing sends them one step closer to the stock check.
+        <h1 className="text-[22px] font-bold tracking-tight text-ink">Purchase Request</h1>
+        <p className="mt-1 max-w-2xl text-sm text-slate-500">
+          Requests waiting for a decision from you — either your review in the reporting line, or an approval level your
+          asset category requires. Approving moves the request on; returning it lets the requester make changes without
+          closing it.
         </p>
       </div>
 
@@ -71,6 +73,20 @@ export function ApprovalsPage() {
                       {r.ref}
                     </button>
                     <PriorityBadge priority={r.priority} />
+                    {r.kind === 'approval' ? (
+                      <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-violet-200">
+                        {String(r.requiredRole ?? '').replace('_', ' ')} approval
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                        Reporting-line review
+                      </span>
+                    )}
+                    {r.isGroup ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                        Group request
+                      </span>
+                    ) : null}
                     {r.alreadyPassed > 0 ? (
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
                         {r.alreadyPassed} earlier review{r.alreadyPassed > 1 ? 's' : ''}
@@ -97,8 +113,8 @@ export function ApprovalsPage() {
       <Card className="p-4">
         <p className="flex items-start gap-2 text-[11px] leading-relaxed text-slate-500">
           <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
-          A request climbs the reporting lines one manager at a time. Only the first line manager above the requester
-          sends it to the stock check; a line manager's own request goes to the next line manager above them.
+          A request climbs the reporting line one manager at a time. After the reporting-line review, any approval level
+          configured on the asset category is cleared before stock is checked. Both steps appear in this queue.
         </p>
       </Card>
     </div>

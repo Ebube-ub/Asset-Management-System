@@ -1,5 +1,7 @@
 -- I4nnova Asset Management System — Release 1 schema
 -- PostgreSQL (runs on embedded PGlite in development)
+-- Every statement is safe to re-run. Column-level changes for databases created
+-- by an earlier release live in server/db/migrations.ts.
 
 create sequence if not exists request_ref_seq;
 create sequence if not exists asset_ref_seq;
@@ -36,17 +38,48 @@ create table if not exists room (
 );
 
 -- ============================================================
--- Asset Register context (asset_type referenced by requisition)
+-- Asset Configuration context
 -- ============================================================
+create table if not exists asset_category (
+  id uuid primary key,
+  name text not null unique,
+  description text,
+  -- Approver level required before anything in this category is released to stock.
+  approval_role text check (approval_role in ('team_lead','line_manager','stock_manager','financial_executive','administrator')),
+  approval_stage integer not null default 1,
+  -- Hierarchy restriction: the lowest role that may request this category.
+  min_request_role text check (min_request_role in ('team_lead','line_manager','stock_manager','financial_executive','administrator')),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists asset_type (
   id uuid primary key,
   name text not null unique,
   custody_kind text not null check (custody_kind in ('person','location')),
   category text not null default 'General',
+  category_id uuid references asset_category(id),
   description text,
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+-- Fields that belong to one asset type only. A laptop and an air conditioner
+-- share the register but never share a form.
+create table if not exists asset_attribute (
+  id uuid primary key,
+  asset_type_id uuid not null references asset_type(id) on delete cascade,
+  key text not null,
+  label text not null,
+  field_type text not null check (field_type in ('text','number','select','date','checkbox')),
+  options text[] not null default '{}',
+  required boolean not null default false,
+  position integer not null default 0,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (asset_type_id, key)
+);
+create index if not exists asset_attribute_type_idx on asset_attribute(asset_type_id);
 
 -- ============================================================
 -- Requisition context
@@ -61,9 +94,14 @@ create table if not exists request (
   priority text not null check (priority in ('critical','high','medium','low')),
   priority_justification text,
   business_impact text,
-  status text not null check (status in ('raised','under_review','rejected','in_progress','fulfilled','partly_fulfilled','closed','cancelled')),
+  status text not null check (status in ('raised','under_review','returned','awaiting_approval','rejected','in_progress','fulfilled','partly_fulfilled','closed','cancelled')),
   current_reviewer_id uuid references staff(id),
   review_restarts integer not null default 0,
+  is_group boolean not null default false,
+  returned_by uuid references staff(id),
+  returned_at timestamptz,
+  return_reason text,
+  resubmitted_at timestamptz,
   created_at timestamptz not null default now()
 );
 create index if not exists request_status_idx on request(status);
@@ -80,6 +118,16 @@ create table if not exists request_line (
 );
 create index if not exists request_line_request_idx on request_line(request_id);
 
+-- Only used by group requests: who each unit on the line is for.
+create table if not exists request_line_recipient (
+  id uuid primary key,
+  request_line_id uuid not null references request_line(id) on delete cascade,
+  staff_id uuid not null references staff(id),
+  quantity integer not null check (quantity > 0),
+  unique (request_line_id, staff_id)
+);
+create index if not exists request_line_recipient_line_idx on request_line_recipient(request_line_id);
+
 create table if not exists request_item (
   id uuid primary key,
   request_line_id uuid not null references request_line(id) on delete cascade,
@@ -88,11 +136,27 @@ create table if not exists request_item (
   closed_reason text check (closed_reason in ('declined','unavailable','cancelled')),
   review_due_at timestamptz,
   issued_asset_id uuid,
+  recipient_staff_id uuid references staff(id),
   updated_at timestamptz not null default now(),
   check ((status = 'closed') = (closed_reason is not null))
 );
 create index if not exists request_item_line_idx on request_item(request_line_id);
 create index if not exists request_item_status_idx on request_item(status);
+
+-- Category/hierarchy approval levels a request must clear before the stock check.
+create table if not exists request_approval (
+  id uuid primary key,
+  request_id uuid not null references request(id) on delete cascade,
+  stage integer not null,
+  required_role text not null check (required_role in ('team_lead','line_manager','stock_manager','financial_executive','administrator')),
+  label text,
+  status text not null default 'pending' check (status in ('pending','approved','rejected','returned')),
+  decided_by uuid references staff(id),
+  decided_at timestamptz,
+  note text,
+  unique (request_id, stage)
+);
+create index if not exists request_approval_request_idx on request_approval(request_id);
 
 create table if not exists financial_decision (
   id uuid primary key,
@@ -154,6 +218,7 @@ create table if not exists purchase (
   cost numeric(14,2) not null check (cost >= 0),
   receipt_url text,
   receipt_name text,
+  photo_url text,
   recorded_by uuid not null references staff(id),
   recorded_at timestamptz not null default now()
 );
@@ -181,10 +246,13 @@ create table if not exists asset (
   serial_number text,
   condition text not null check (condition in ('new','good','fair','poor')),
   status text not null check (status in ('available','assigned','awaiting_disposal','disposed')),
+  -- Assigned assets move through an explicit handover: issued is not collected.
+  handover_status text check (handover_status in ('awaiting_handover','handed_over','collected','in_use','returned')),
   holder_staff_id uuid references staff(id),
   room_id uuid references room(id),
   purchase_id uuid references purchase(id),
   request_item_id uuid,
+  photo_url text,
   registered_at timestamptz not null default now(),
   registered_by uuid references staff(id),
   notes text,
@@ -198,6 +266,13 @@ create index if not exists asset_type_idx on asset(asset_type_id);
 create index if not exists asset_holder_idx on asset(holder_staff_id);
 create index if not exists asset_room_idx on asset(room_id);
 
+create table if not exists asset_attribute_value (
+  asset_id uuid not null references asset(id) on delete cascade,
+  attribute_id uuid not null references asset_attribute(id) on delete cascade,
+  value text,
+  primary key (asset_id, attribute_id)
+);
+
 create table if not exists asset_history (
   id uuid primary key,
   asset_id uuid not null references asset(id) on delete cascade,
@@ -209,6 +284,24 @@ create table if not exists asset_history (
   note text
 );
 create index if not exists asset_history_asset_idx on asset_history(asset_id);
+
+-- Who released an asset, who authorised it, and how it reached the holder.
+create table if not exists asset_release (
+  id uuid primary key,
+  asset_id uuid not null references asset(id) on delete cascade,
+  request_item_id uuid,
+  recipient_staff_id uuid references staff(id),
+  room_id uuid references room(id),
+  authorized_by uuid not null references staff(id),
+  issued_by uuid not null references staff(id),
+  released_at timestamptz not null default now(),
+  handover_status text not null default 'awaiting_handover'
+    check (handover_status in ('awaiting_handover','handed_over','collected')),
+  handover_at timestamptz,
+  handover_by uuid references staff(id),
+  note text
+);
+create index if not exists asset_release_asset_idx on asset_release(asset_id);
 
 create table if not exists disposal (
   id uuid primary key,
@@ -244,7 +337,7 @@ create table if not exists asset_movement (
 create index if not exists asset_movement_status_idx on asset_movement(status);
 
 -- ============================================================
--- Settings, sessions, documents
+-- Settings, sessions, documents, email
 -- ============================================================
 create table if not exists app_setting (
   key text primary key,
@@ -273,4 +366,26 @@ create table if not exists document (
   size integer,
   uploaded_by uuid references staff(id),
   uploaded_at timestamptz not null default now()
+);
+
+-- One row per email the system tried to send. dedupe_key makes a repeated
+-- action idempotent, so nobody receives the same notice twice.
+create table if not exists email_log (
+  id uuid primary key,
+  dedupe_key text not null unique,
+  to_email text not null,
+  subject text not null,
+  body text not null,
+  status text not null default 'queued' check (status in ('queued','sent','failed','skipped')),
+  attempts integer not null default 0,
+  error text,
+  created_at timestamptz not null default now(),
+  sent_at timestamptz
+);
+create index if not exists email_log_status_idx on email_log(status);
+
+-- Applied database migrations (see server/db/migrations.ts).
+create table if not exists _migration (
+  id text primary key,
+  applied_at timestamptz not null default now()
 );

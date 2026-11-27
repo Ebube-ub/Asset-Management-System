@@ -2,15 +2,18 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
   Circle,
   History,
   PackageSearch,
+  PencilLine,
   Quote,
+  RotateCcw,
   ShieldAlert,
+  ShieldCheck,
+  Users,
   XCircle,
 } from 'lucide-react';
 import { api } from '../lib/api';
@@ -21,7 +24,6 @@ import {
   Callout,
   Card,
   CardHeader,
-  ConfirmDialog,
   EmptyState,
   ErrorState,
   Field,
@@ -34,12 +36,9 @@ import {
 } from '../components/ui';
 import { DecisionBadge, ItemStatusBadge, PriorityBadge, RequestStatusBadge } from '../components/badges';
 import { dateTime, naira, relativeTime, shortDate } from '../lib/format';
-import {
-  ITEM_STATUS_LABELS,
-  PRIORITY_LABELS,
-  scoreQuotes,
-  type ItemStatus,
-} from '@shared/domain';
+import { HANDOVER_LABELS, PRIORITY_LABELS, ROLE_LABELS, scoreQuotes, type Role } from '@shared/domain';
+
+type ReviewAction = 'pass' | 'reject' | 'return';
 
 export function RequestDetailPage() {
   const { id } = useParams();
@@ -51,22 +50,42 @@ export function RequestDetailPage() {
   const query = useQuery({ queryKey: ['request', id], queryFn: () => api<any>(`/requests/${id}`) });
   const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<any>('/meta') });
 
-  const [reviewOpen, setReviewOpen] = useState<false | 'pass' | 'reject'>(false);
+  const [reviewOpen, setReviewOpen] = useState<false | ReviewAction>(false);
   const [note, setNote] = useState('');
   const [newPriority, setNewPriority] = useState('');
   const [priorityJustification, setPriorityJustification] = useState('');
   const [businessImpact, setBusinessImpact] = useState('');
 
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['request', id] });
+    void qc.invalidateQueries({ queryKey: ['requests'] });
+    void qc.invalidateQueries({ queryKey: ['approvals'] });
+    void qc.invalidateQueries({ queryKey: ['dashboard'] });
+  };
+
   const review = useMutation({
     mutationFn: (payload: any) => api<any>(`/requests/${id}/review`, { method: 'POST', body: payload }),
     onSuccess: () => {
-      push(reviewOpen === 'reject' ? 'Request rejected and closed.' : 'Request passed to the next reviewer.', 'success');
+      push(
+        reviewOpen === 'reject'
+          ? 'Request rejected and closed.'
+          : reviewOpen === 'return'
+            ? 'Request returned to the requester for editing.'
+            : 'Request approved and passed on.',
+        'success',
+      );
       setReviewOpen(false);
       setNote('');
-      void qc.invalidateQueries({ queryKey: ['request', id] });
-      void qc.invalidateQueries({ queryKey: ['requests'] });
-      void qc.invalidateQueries({ queryKey: ['approvals'] });
-      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+      refresh();
+    },
+    onError: (e: Error) => push(e.message, 'error'),
+  });
+
+  const resubmit = useMutation({
+    mutationFn: () => api<any>(`/requests/${id}/resubmit`, { method: 'POST', body: {} }),
+    onSuccess: () => {
+      push('Request resubmitted and back with the reviewer.', 'success');
+      refresh();
     },
     onError: (e: Error) => push(e.message, 'error'),
   });
@@ -96,18 +115,29 @@ export function RequestDetailPage() {
 
   if (query.isLoading) return <Spinner label="Loading request…" />;
   if (query.isError) return <ErrorState message={(query.error as Error).message} onRetry={() => query.refetch()} />;
-  const { request, lines, items, history, quotes, choice, purchases, access, reviewChain } = query.data;
+  const { request, lines, items, history, quotes, choice, purchases, access, reviewChain, approvals } = query.data;
 
   const itemCount = items.length;
   const issued = items.filter((i: any) => i.status === 'issued').length;
   const onOrder = items.filter((i: any) => !['issued', 'closed'].includes(i.status)).length;
   const overBudget = lines.filter((l: any) => l.overBudget);
-  const canReview = access?.canReview;
+  const canReview = access?.canReview || access?.canDecideApproval;
+  const isReturned = request.status === 'returned';
+  const pendingStage = approvals.find((a: any) => a.status === 'pending');
+
+  const openReview = (action: ReviewAction) => {
+    setNewPriority(request.priority);
+    setNote('');
+    setReviewOpen(action);
+  };
 
   return (
     <div className="space-y-4">
       <div>
-        <button onClick={() => navigate('/requests')} className="mb-1 inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-brand-600">
+        <button
+          onClick={() => navigate('/requests')}
+          className="mb-1 inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-brand-600"
+        >
           <ArrowLeft className="h-3 w-3" /> Back to requests
         </button>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -116,6 +146,11 @@ export function RequestDetailPage() {
               <h1 className="text-[22px] font-bold tracking-tight text-ink">{request.ref}</h1>
               <RequestStatusBadge status={request.status} />
               <PriorityBadge priority={request.priority} />
+              {request.isGroup ? (
+                <Badge className="bg-violet-50 text-violet-700 ring-violet-200">
+                  <Users className="h-3 w-3" /> Group request
+                </Badge>
+              ) : null}
             </div>
             <p className="mt-1 text-sm text-slate-500">
               Raised by {request.raisedByName} for <span className="font-medium text-ink">{request.raisedForName}</span> ·{' '}
@@ -125,41 +160,65 @@ export function RequestDetailPage() {
           <div className="flex flex-wrap gap-2">
             {canReview ? (
               <>
-                <Button
-                  variant="danger"
-                  onClick={() => {
-                    setNewPriority(request.priority);
-                    setReviewOpen('reject');
-                  }}
-                  icon={<XCircle className="h-4 w-4" />}
-                >
+                <Button variant="outline" onClick={() => openReview('return')} icon={<RotateCcw className="h-4 w-4" />}>
+                  Return for editing
+                </Button>
+                <Button variant="danger" onClick={() => openReview('reject')} icon={<XCircle className="h-4 w-4" />}>
                   Reject
                 </Button>
-                <Button
-                  variant="success"
-                  onClick={() => {
-                    setNewPriority(request.priority);
-                    setReviewOpen('pass');
-                  }}
-                  icon={<CheckCircle2 className="h-4 w-4" />}
-                >
-                  Pass review
+                <Button variant="success" onClick={() => openReview('pass')} icon={<CheckCircle2 className="h-4 w-4" />}>
+                  {access?.canDecideApproval ? 'Approve' : 'Approve and pass on'}
                 </Button>
               </>
             ) : null}
             {hasRole('stock_manager') && items.some((i: any) => ['requested', 'purchased'].includes(i.status)) ? (
               <Button variant="outline" onClick={() => navigate('/stock')} icon={<PackageSearch className="h-4 w-4" />}>
-                Stock check
+                Open stock check
               </Button>
             ) : null}
             {can('quotations') && lines.some((l: any) => l.quoteCount > 0) ? (
-              <Button variant="outline" onClick={() => navigate(`/quotations/${lines.find((l: any) => l.quoteCount > 0).id}`)} icon={<Quote className="h-4 w-4" />}>
+              <Button
+                variant="outline"
+                onClick={() => navigate(`/quotations/${lines.find((l: any) => l.quoteCount > 0).id}`)}
+                icon={<Quote className="h-4 w-4" />}
+              >
                 Quotations
               </Button>
             ) : null}
           </div>
         </div>
       </div>
+
+      {isReturned ? (
+        <Callout tone="warning" title="This request was returned for editing — it is not closed">
+          <p className="font-medium">{request.returnReason}</p>
+          <p className="mt-1">
+            Returned by {request.returnedByName ?? 'the reviewer'} on {dateTime(request.returnedAt)}. Make the changes and
+            resubmit; it continues from the stage it was returned from.
+          </p>
+          {access?.canEdit ? (
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => navigate(`/requests/${request.id}/edit`)} icon={<PencilLine className="h-3.5 w-3.5" />}>
+                Edit request
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                loading={resubmit.isPending}
+                onClick={() => resubmit.mutate()}
+              >
+                Resubmit without changes
+              </Button>
+            </div>
+          ) : null}
+        </Callout>
+      ) : null}
+
+      {request.status === 'awaiting_approval' && pendingStage ? (
+        <Callout tone="info" title={`Waiting for ${ROLE_LABELS[pendingStage.requiredRole as Role] ?? pendingStage.requiredRole} approval`}>
+          {pendingStage.label ?? 'This asset category needs a senior approval before stock is checked.'}
+        </Callout>
+      ) : null}
 
       {overBudget.length ? (
         <Callout tone="danger" title="Over the approved amount">
@@ -186,11 +245,17 @@ export function RequestDetailPage() {
                 value={`${request.raisedForName} · ${request.raisedForEmail}`}
                 hint={!request.raisedForFirstSignedIn ? 'New hire — has not signed in yet' : undefined}
               />
-              <Summary label="Current reviewer" value={request.currentReviewerName ?? 'No reviewer (stock check or closed)'} />
-              <Summary label="Progress" value={`${issued} of ${itemCount} issued${onOrder ? `, ${onOrder} on order` : ''}`} />
+              <Summary
+                label="Current reviewer"
+                value={request.currentReviewerName ?? (pendingStage ? `${ROLE_LABELS[pendingStage.requiredRole as Role]} approval` : 'Nobody — with the stock check')}
+              />
+              <Summary label="Progress" value={`${issued} of ${itemCount} issued${onOrder ? `, ${onOrder} in progress` : ''}`} />
+              {request.resubmittedAt ? (
+                <Summary label="Resubmitted" value={dateTime(request.resubmittedAt)} />
+              ) : null}
             </div>
             <div className="border-t border-slate-100 px-5 py-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Justification</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Why it was requested</p>
               <p className="mt-1 text-[13px] leading-relaxed text-slate-700">{request.justification}</p>
               {request.priorityJustification ? (
                 <div className="mt-3 rounded-xl bg-amber-50/70 p-3">
@@ -202,25 +267,69 @@ export function RequestDetailPage() {
               ) : null}
             </div>
             <div className="border-t border-slate-100 px-5 py-4">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Reporting line above {request.raisedForName.split(' ')[0]}</p>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Reporting line above {request.raisedForName.split(' ')[0]}
+              </p>
               {reviewChain.length === 0 ? (
-                <p className="text-xs text-slate-500">No manager above this person — line-manager review is skipped.</p>
+                <p className="text-xs text-slate-500">Nobody manages this person, so the review step is skipped.</p>
               ) : (
                 <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                  {reviewChain.map((r: any, i: number) => (
+                  {reviewChain.map((r: any) => (
                     <span key={r.id} className="flex items-center gap-1.5">
-                      <span className={cn('rounded-full px-2 py-0.5 font-medium', request.currentReviewerId === r.id ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600')}>
+                      <span
+                        className={cn(
+                          'rounded-full px-2 py-0.5 font-medium',
+                          request.currentReviewerId === r.id ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600',
+                        )}
+                      >
                         {r.name}
                       </span>
-                      {i < reviewChain.length - 1 ? <ArrowRight className="h-3 w-3 text-slate-300" /> : <ArrowRight className="h-3 w-3 text-slate-300" />}
+                      <ArrowRight className="h-3 w-3 text-slate-300" />
                     </span>
                   ))}
-                  <ArrowRight className="h-3 w-3 text-slate-300" />
                   <span className="rounded-full bg-brand-50 px-2 py-0.5 font-medium text-brand-600">Stock check</span>
                 </div>
               )}
             </div>
           </Card>
+
+          {approvals.length ? (
+            <Card>
+              <CardHeader title="Approval levels" subtitle="Set by asset category in Asset Configuration" />
+              <div className="divide-y divide-slate-50">
+                {approvals.map((a: any) => (
+                  <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-xs">
+                    <div>
+                      <p className="font-medium text-ink">
+                        Stage {a.stage} · {ROLE_LABELS[a.requiredRole as Role] ?? a.requiredRole}
+                      </p>
+                      <p className="text-[11px] text-slate-500">{a.label}</p>
+                      {a.note ? <p className="text-[11px] text-slate-500">“{a.note}”</p> : null}
+                    </div>
+                    <Badge
+                      className={
+                        a.status === 'approved'
+                          ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                          : a.status === 'pending'
+                            ? 'bg-amber-50 text-amber-700 ring-amber-200'
+                            : a.status === 'returned'
+                              ? 'bg-orange-50 text-orange-700 ring-orange-200'
+                              : 'bg-red-50 text-red-700 ring-red-200'
+                      }
+                    >
+                      {a.status === 'approved'
+                        ? `Approved${a.decidedByName ? ` · ${a.decidedByName}` : ''}`
+                        : a.status === 'pending'
+                          ? 'Waiting'
+                          : a.status === 'returned'
+                            ? 'Returned for editing'
+                            : 'Rejected'}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ) : null}
 
           {lines.map((line: any) => {
             const lineItems = items.filter((i: any) => i.lineId === line.id);
@@ -231,15 +340,37 @@ export function RequestDetailPage() {
               <Card key={line.id}>
                 <CardHeader
                   title={line.assetTypeName}
-                  subtitle={`${line.quantity} × ${line.custodyKind === 'person' ? 'held by a person' : `held by location · ${line.roomName}`}`}
-                  action={<Badge className="bg-slate-100 text-slate-600 ring-slate-200">{line.availableCount} available in stock</Badge>}
+                  subtitle={
+                    line.recipients?.length
+                      ? `${line.quantity} × allocated to ${line.recipients.length} team member(s)`
+                      : `${line.quantity} × ${line.custodyKind === 'person' ? 'held by a person' : `held by location · ${line.roomName}`}`
+                  }
+                  action={<Badge className="bg-slate-100 text-slate-600 ring-slate-200">{line.availableCount} in stock</Badge>}
                 />
                 <div className="space-y-4 p-5">
+                  {line.recipients?.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {line.recipients.map((r: any) => (
+                        <Badge key={r.staffId} className="bg-violet-50 text-violet-700 ring-violet-200">
+                          {r.name} · {r.quantity}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+
                   <div className="flex flex-wrap gap-1.5">
-                    {lineItems.map((item: any, i: number) => (
+                    {lineItems.map((item: any) => (
                       <span key={item.id} className="inline-flex items-center gap-1">
                         <span className="text-[10px] text-slate-400">#{item.seq}</span>
                         <ItemStatusBadge status={item.status} reason={item.closedReason} />
+                        {item.handoverStatus ? (
+                          <Badge className="bg-slate-100 text-slate-600 ring-slate-200">
+                            {HANDOVER_LABELS[item.handoverStatus as keyof typeof HANDOVER_LABELS] ?? item.handoverStatus}
+                          </Badge>
+                        ) : null}
+                        {item.recipientName ? (
+                          <span className="text-[10px] text-slate-500">for {item.recipientName}</span>
+                        ) : null}
                         {item.assetRef ? (
                           <Link to={`/assets/${item.issuedAssetId}`} className="text-[10px] text-brand-600 hover:underline">
                             {item.assetRef}
@@ -253,10 +384,10 @@ export function RequestDetailPage() {
                     <div className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-[11px] text-red-700">
                       <ShieldAlert className="h-4 w-4 shrink-0" />
                       <div>
-                        <p className="font-semibold">Actual cost exceeds the approved amount</p>
+                        <p className="font-semibold">The actual cost is above the approved amount</p>
                         <p>
-                          Cost {naira(line.cost)} vs approved {naira(line.approvedAmount)}. The approved amount is never
-                          changed silently — review and escalate if needed.
+                          Cost {naira(line.cost)} against an approved {naira(line.approvedAmount)}. The approved amount is
+                          never changed silently — review and escalate if needed.
                         </p>
                       </div>
                     </div>
@@ -269,7 +400,9 @@ export function RequestDetailPage() {
                     </div>
                     <div className="rounded-xl bg-slate-50 p-3">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Approved amount</p>
-                      <p className="mt-0.5 text-sm font-semibold text-ink">{line.approvedAmount != null ? naira(line.approvedAmount) : '—'}</p>
+                      <p className="mt-0.5 text-sm font-semibold text-ink">
+                        {line.approvedAmount != null ? naira(line.approvedAmount) : '—'}
+                      </p>
                     </div>
                     <div className="rounded-xl bg-slate-50 p-3">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Recorded cost</p>
@@ -293,7 +426,7 @@ export function RequestDetailPage() {
                       <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
                         <p className="text-[11px] font-semibold text-slate-600">Quotation comparison</p>
                         <Link to={`/quotations/${line.id}`} className="text-[11px] font-semibold text-brand-600 hover:underline">
-                          Open full comparison
+                          Open the full comparison
                         </Link>
                       </div>
                       <div className="table-scroll">
@@ -314,8 +447,16 @@ export function RequestDetailPage() {
                                 <tr key={q.id} className="border-t border-slate-50">
                                   <td className="px-3 py-2 font-medium text-ink">
                                     {q.vendorName}
-                                    {s?.recommended ? <span className="ml-1.5 rounded bg-emerald-50 px-1 py-0.5 text-[9px] font-semibold text-emerald-700">Recommended</span> : null}
-                                    {choice?.chosenQuoteId === q.id ? <span className="ml-1.5 rounded bg-brand-50 px-1 py-0.5 text-[9px] font-semibold text-brand-600">Chosen</span> : null}
+                                    {s?.recommended ? (
+                                      <span className="ml-1.5 rounded bg-emerald-50 px-1 py-0.5 text-[9px] font-semibold text-emerald-700">
+                                        Recommended
+                                      </span>
+                                    ) : null}
+                                    {choice?.chosenQuoteId === q.id ? (
+                                      <span className="ml-1.5 rounded bg-brand-50 px-1 py-0.5 text-[9px] font-semibold text-brand-600">
+                                        Chosen
+                                      </span>
+                                    ) : null}
                                   </td>
                                   <td className="px-3 py-2">{naira(q.amount)}</td>
                                   <td className="px-3 py-2">{q.deliveryDays} days</td>
@@ -337,24 +478,26 @@ export function RequestDetailPage() {
                     </div>
                   ) : null}
 
-                  {purchases.filter((p: any) => p.lineId === line.id).map((p: any) => (
-                    <div key={p.id} className="rounded-xl border border-slate-200 p-3 text-[11px] text-slate-600">
-                      <p className="font-semibold text-ink">Purchase recorded — {p.vendorName}</p>
-                      <p className="mt-0.5">
-                        {naira(p.cost)} · recorded by {p.recordedByName} · {shortDate(p.recordedAt)}
-                        {p.receiptUrl ? (
-                          <>
-                            {' · '}
-                            <a href={p.receiptUrl} target="_blank" rel="noreferrer" className="text-brand-600 underline">
-                              Receipt
-                            </a>
-                          </>
-                        ) : (
-                          ' · no receipt attached'
-                        )}
-                      </p>
-                    </div>
-                  ))}
+                  {purchases
+                    .filter((p: any) => p.lineId === line.id)
+                    .map((p: any) => (
+                      <div key={p.id} className="rounded-xl border border-slate-200 p-3 text-[11px] text-slate-600">
+                        <p className="font-semibold text-ink">Purchase recorded — {p.vendorName}</p>
+                        <p className="mt-0.5">
+                          {naira(p.cost)} · recorded by {p.recordedByName} · {shortDate(p.recordedAt)}
+                          {p.receiptUrl ? (
+                            <>
+                              {' · '}
+                              <a href={p.receiptUrl} target="_blank" rel="noreferrer" className="text-brand-600 underline">
+                                Receipt
+                              </a>
+                            </>
+                          ) : (
+                            ' · no receipt attached'
+                          )}
+                        </p>
+                      </div>
+                    ))}
                 </div>
               </Card>
             );
@@ -385,7 +528,7 @@ export function RequestDetailPage() {
           </Card>
 
           <Card>
-            <CardHeader title="Next step" />
+            <CardHeader title="What happens next" />
             <div className="space-y-2 p-4 text-[11.5px] leading-relaxed text-slate-600">
               {nextStep(request, items, lines).map((s, i) => (
                 <p key={i} className="flex gap-2">
@@ -395,7 +538,8 @@ export function RequestDetailPage() {
               ))}
               {canReview ? (
                 <p className="rounded-lg bg-amber-50 p-2.5 text-amber-800">
-                  This request is waiting for your review. Passing it will move it on; rejecting closes it.
+                  This request is waiting for you. Approving moves it on, returning it lets the requester fix it, and
+                  rejecting closes it.
                 </p>
               ) : null}
             </div>
@@ -406,11 +550,23 @@ export function RequestDetailPage() {
       <Modal
         open={!!reviewOpen}
         onClose={() => setReviewOpen(false)}
-        title={reviewOpen === 'reject' ? 'Reject this request?' : 'Pass this request on'}
+        title={
+          reviewOpen === 'reject'
+            ? 'Reject this request?'
+            : reviewOpen === 'return'
+              ? 'Return this request for editing'
+              : access?.canDecideApproval
+                ? 'Approve this request'
+                : 'Approve and pass this request on'
+        }
         description={
           reviewOpen === 'reject'
-            ? 'Rejecting closes the request. There is no return-for-editing — the requester can raise a new request if the need remains.'
-            : 'The request moves to the next reviewer, or to the stock check when a line manager passes it.'
+            ? 'Rejecting closes the request. If the need is still there, a new request must be raised.'
+            : reviewOpen === 'return'
+              ? 'The requester is notified and can edit and resubmit. The request is not closed and keeps its place in the workflow.'
+              : access?.canDecideApproval
+                ? 'This clears your approval level. The request moves to the next approval or to the stock check.'
+                : 'The request moves to the next reviewer, or to the approval levels and stock check.'
         }
         footer={
           <>
@@ -418,12 +574,12 @@ export function RequestDetailPage() {
               Cancel
             </Button>
             <Button
-              variant={reviewOpen === 'reject' ? 'danger' : 'success'}
+              variant={reviewOpen === 'reject' ? 'danger' : reviewOpen === 'return' ? 'secondary' : 'success'}
               loading={review.isPending}
               onClick={() => {
                 const needsDetail = newPriority === 'high' || newPriority === 'critical';
                 review.mutate({
-                  action: reviewOpen === 'reject' ? 'reject' : 'pass',
+                  action: reviewOpen === 'reject' ? 'reject' : reviewOpen === 'return' ? 'return' : 'pass',
                   note: note.trim() || null,
                   priority: newPriority,
                   priorityJustification: needsDetail ? priorityJustification : null,
@@ -431,7 +587,13 @@ export function RequestDetailPage() {
                 });
               }}
             >
-              {reviewOpen === 'reject' ? 'Reject request' : 'Pass request'}
+              {reviewOpen === 'reject'
+                ? 'Reject request'
+                : reviewOpen === 'return'
+                  ? 'Return for editing'
+                  : access?.canDecideApproval
+                    ? 'Approve'
+                    : 'Approve and pass on'}
             </Button>
           </>
         }
@@ -451,20 +613,48 @@ export function RequestDetailPage() {
               <Callout tone="warning" title="Justify the higher priority">
                 Raising a request to High or Critical needs a priority justification and the business impact.
               </Callout>
-              <Field label="Priority justification" required>
-                <Textarea value={priorityJustification} onChange={(e) => setPriorityJustification(e.target.value)} className="min-h-[70px]" />
+              <Field label="Why this priority?" required>
+                <Textarea
+                  value={priorityJustification}
+                  onChange={(e) => setPriorityJustification(e.target.value)}
+                  className="min-h-[70px]"
+                />
               </Field>
-              <Field label="Business impact" required>
+              <Field label="What is the business impact?" required>
                 <Textarea value={businessImpact} onChange={(e) => setBusinessImpact(e.target.value)} className="min-h-[70px]" />
               </Field>
             </>
           ) : null}
-          <Field label="Note" hint="Recorded in the request history.">
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={reviewOpen === 'reject' ? 'Why is this being rejected?' : 'Anything the next person should know…'} />
+          <Field
+            label={reviewOpen === 'return' ? 'What needs to change?' : 'Comment'}
+            required={reviewOpen === 'return'}
+            hint={
+              reviewOpen === 'return'
+                ? 'The requester sees this. Be specific so they can fix it in one pass.'
+                : 'Saved in the request history.'
+            }
+          >
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={
+                reviewOpen === 'reject'
+                  ? 'Why is this being rejected?'
+                  : reviewOpen === 'return'
+                    ? 'For example: please add the room and a clearer justification.'
+                    : 'Anything the next person should know…'
+              }
+              aria-invalid={reviewOpen === 'return' && !note.trim()}
+            />
           </Field>
           {reviewOpen === 'reject' ? (
             <Callout tone="danger" title="This cannot be undone">
               The request closes and every open item is closed as declined.
+            </Callout>
+          ) : null}
+          {reviewOpen === 'return' ? (
+            <Callout tone="info" title="Returned is not rejected">
+              The request keeps its reference and history. Once resubmitted it continues from this point.
             </Callout>
           ) : null}
         </div>
@@ -485,13 +675,19 @@ function Summary({ label, value, hint }: { label: string; value: React.ReactNode
 
 const EVENT_LABELS: Record<string, string> = {
   RequestRaised: 'Request raised',
-  RequestPassedReview: 'Passed review',
+  RequestPassedReview: 'Passed the review',
+  RequestReturned: 'Returned for editing',
+  RequestEdited: 'Request edited',
+  RequestResubmitted: 'Request resubmitted',
+  ApprovalRequested: 'Approval requested',
+  ApprovalPassed: 'Approval given',
   RequestRejected: 'Request rejected',
   RequestCompleted: 'Request completed',
   RequestCancelled: 'Request cancelled',
   ReviewRestarted: 'Review restarted',
   StockChecked: 'Stock checked',
   ItemIssued: 'Item issued',
+  ItemReturned: 'Item returned',
   ItemClosed: 'Item closed',
   QuoteRecorded: 'Quotation recorded',
   QuoteChosen: 'Quotation chosen',
@@ -506,8 +702,12 @@ function eventLabel(event: string) {
 function nextStep(request: any, items: any[], lines: any[]): string[] {
   if (request.status === 'rejected') return ['This request was rejected and is closed.'];
   if (request.status === 'cancelled') return ['This request was cancelled because the staff member left.'];
+  if (request.status === 'returned')
+    return ['The requester is editing this request. It resumes from the same stage when they resubmit.'];
   if (request.status === 'under_review')
-    return [`Waiting for ${request.currentReviewerName ?? 'the next reviewer'} to pass or reject the request.`];
+    return [`Waiting for ${request.currentReviewerName ?? 'the next reviewer'} to approve, return or reject it.`];
+  if (request.status === 'awaiting_approval')
+    return ['Waiting for the approval level set by the asset category before stock can be checked.'];
   if (request.status === 'fulfilled') return ['Every item on this request has been issued.'];
   if (request.status === 'partly_fulfilled') return ['Some items were issued and the rest are closed — this is final.'];
   if (request.status === 'closed') return ['Nothing on this request was issued; every item is closed.'];
@@ -519,12 +719,15 @@ function nextStep(request: any, items: any[], lines: any[]): string[] {
   const parked = items.filter((i) => i.status === 'parked').length;
   const approved = items.filter((i) => i.status === 'approved').length;
   const purchased = items.filter((i) => i.status === 'purchased').length;
-  if (requested) out.push(`${requested} item(s) wait for the stock check.`);
+  const awaitingHandover = items.filter((i) => i.status === 'issued' && i.handoverStatus === 'awaiting_handover').length;
+  if (requested) out.push(`${requested} item(s) are waiting for the stock check.`);
   if (quotation) out.push(`${quotation} item(s) need vendor quotations before a financial decision.`);
-  if (decision) out.push(`${decision} item(s) wait for the financial executive.`);
-  if (parked) out.push(`${parked} item(s) are parked and due for review.`);
+  if (decision) out.push(`${decision} item(s) are with the financial executive.`);
+  if (parked) out.push(`${parked} item(s) are deferred and due for review.`);
   if (approved) out.push(`${approved} item(s) are approved — the stock manager records the purchase next.`);
-  if (purchased) out.push(`${purchased} item(s) are purchased and ready to issue.`);
+  if (purchased) out.push(`${purchased} item(s) are in stock and ready to issue.`);
+  if (awaitingHandover) out.push(`${awaitingHandover} item(s) await the handover or collection record.`);
+  void lines;
   if (!out.length) out.push('All items have reached their end state.');
   return out;
 }

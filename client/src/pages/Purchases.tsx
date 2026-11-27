@@ -31,6 +31,8 @@ export function PurchasesPage() {
   const [vendor, setVendor] = useState('');
   const [cost, setCost] = useState('');
   const [doc, setDoc] = useState<{ url: string; name: string } | null>(null);
+  const [photo, setPhoto] = useState<{ url: string; name: string } | null>(null);
+  const [units, setUnits] = useState<{ serialNumber: string; photo: { url: string; name: string } | null }[]>([]);
   const [note, setNote] = useState('');
 
   const record = useMutation({
@@ -44,6 +46,8 @@ export function PurchasesPage() {
       );
       setTarget(null);
       setDoc(null);
+      setPhoto(null);
+      setUnits([]);
       setNote('');
       void qc.invalidateQueries({ queryKey: ['purchases'] });
       void qc.invalidateQueries({ queryKey: ['stock'] });
@@ -126,6 +130,8 @@ export function PurchasesPage() {
                     setVendor(a.vendorName ?? '');
                     setCost(String(a.approvedAmount ?? ''));
                     setDoc(null);
+                    setPhoto(null);
+                    setUnits(Array.from({ length: a.approvedCount }, () => ({ serialNumber: '', photo: null })));
                     setNote('');
                   }}
                   icon={<Receipt className="h-3.5 w-3.5" />}
@@ -216,7 +222,9 @@ export function PurchasesPage() {
                   cost: Number(cost),
                   receiptUrl: doc?.url ?? null,
                   receiptName: doc?.name ?? null,
+                  photoUrl: photo?.url ?? null,
                   note: note.trim() || null,
+                  units: units.map((u) => ({ serialNumber: u.serialNumber || null, photoUrl: u.photo?.url ?? null })),
                 })
               }
             >
@@ -248,6 +256,51 @@ export function PurchasesPage() {
             </Callout>
           ) : null}
           <FileField value={doc} onChange={setDoc} label="Receipt document" />
+          <FileField
+            value={photo}
+            onChange={setPhoto}
+            label="Photo of the delivered items"
+            hint="Take a picture or upload one · PNG, JPEG or WebP · up to 5 MB"
+          />
+          {units.length ? (
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs font-semibold text-slate-600">Each purchased item</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                Every unit gets its own asset record. Add a serial number and a photo now, or complete them later in the
+                asset register.
+              </p>
+              <div className="mt-2 space-y-2">
+                {units.map((unit, index) => (
+                  <div key={index} className="grid gap-2 rounded-lg bg-slate-50/70 p-2.5 sm:grid-cols-[auto_1fr] sm:items-end">
+                    <span className="text-[11px] font-semibold text-slate-500">#{index + 1}</span>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Field label="Serial number">
+                        <Input
+                          value={unit.serialNumber}
+                          onChange={(e) => {
+                            const next = [...units];
+                            next[index] = { ...unit, serialNumber: e.target.value };
+                            setUnits(next);
+                          }}
+                          placeholder="Optional"
+                        />
+                      </Field>
+                      <FileField
+                        value={unit.photo}
+                        onChange={(value) => {
+                          const next = [...units];
+                          next[index] = { ...unit, photo: value };
+                          setUnits(next);
+                        }}
+                        label="Photo"
+                        hint="Optional photo of this item"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <Field label="Note">
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note for the audit trail" />
           </Field>

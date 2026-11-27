@@ -1,7 +1,20 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowLeftRight, Building2, History, PackageCheck, ShieldOff, User, Undo2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowLeftRight,
+  BadgeCheck,
+  Building2,
+  HandCoins,
+  History,
+  ImageIcon,
+  PackageCheck,
+  PencilLine,
+  ShieldOff,
+  User,
+  Undo2,
+} from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import {
@@ -14,6 +27,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  FileField,
   Input,
   Modal,
   Select,
@@ -23,7 +37,7 @@ import {
 } from '../components/ui';
 import { AssetStatusBadge } from '../components/badges';
 import { dateTime, humanise, naira, shortDate } from '../lib/format';
-import { DISPOSAL_METHOD_LABELS } from '@shared/domain';
+import { DISPOSAL_METHOD_LABELS, HANDOVER_LABELS, assetLifecycleLabel } from '@shared/domain';
 
 export function AssetDetailPage() {
   const { id } = useParams();
@@ -40,6 +54,14 @@ export function AssetDetailPage() {
   const [disposalOpen, setDisposalOpen] = useState(false);
   const [destination, setDestination] = useState({ holderStaffId: '', roomId: '', note: '' });
   const [disposal, setDisposal] = useState({ method: 'sale', reason: '' });
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState<{
+    serialNumber: string;
+    condition: string;
+    notes: string;
+    photo: { url: string; name: string } | null;
+    attributes: Record<string, string>;
+  }>({ serialNumber: '', condition: 'good', notes: '', photo: null, attributes: {} });
 
   const isStock = hasRole('stock_manager') || hasRole('administrator');
   const isAdmin = hasRole('administrator');
@@ -51,6 +73,36 @@ export function AssetDetailPage() {
     void qc.invalidateQueries({ queryKey: ['disposals'] });
     void qc.invalidateQueries({ queryKey: ['dashboard'] });
   };
+
+  const handover = useMutation({
+    mutationFn: (method: 'handed_over' | 'collected') =>
+      api(`/assets/${id}/handover`, { method: 'POST', body: { method } }),
+    onSuccess: (_res, method) => {
+      push(method === 'collected' ? 'Recorded as collected.' : 'Recorded as handed over.', 'success');
+      reload();
+    },
+    onError: (e: Error) => push(e.message, 'error'),
+  });
+
+  const saveDetails = useMutation({
+    mutationFn: () =>
+      api(`/assets/${id}`, {
+        method: 'PATCH',
+        body: {
+          serialNumber: editForm.serialNumber || null,
+          condition: editForm.condition,
+          notes: editForm.notes || null,
+          photoUrl: editForm.photo?.url ?? null,
+          attributes: editForm.attributes,
+        },
+      }),
+    onSuccess: () => {
+      push('Asset details updated.', 'success');
+      setEditOpen(false);
+      reload();
+    },
+    onError: (e: Error) => push(e.message, 'error'),
+  });
 
   const act = useMutation({
     mutationFn: ({ path, body }: { path: string; body?: unknown }) => api<any>(path, { method: 'POST', body: body ?? {} }),
@@ -104,6 +156,36 @@ export function AssetDetailPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {isStock ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const values: Record<string, string> = {};
+                  for (const a of query.data.attributes) if (a.value != null) values[a.key] = String(a.value);
+                  setEditForm({
+                    serialNumber: asset.serialNumber ?? '',
+                    condition: asset.condition,
+                    notes: asset.notes ?? '',
+                    photo: asset.photoUrl ? { url: asset.photoUrl, name: 'Current photo' } : null,
+                    attributes: values,
+                  });
+                  setEditOpen(true);
+                }}
+                icon={<PencilLine className="h-4 w-4" />}
+              >
+                Edit details
+              </Button>
+            ) : null}
+            {isStock && asset.status === 'assigned' && asset.handoverStatus === 'awaiting_handover' ? (
+              <>
+                <Button loading={handover.isPending} onClick={() => handover.mutate('handed_over')} icon={<HandCoins className="h-4 w-4" />}>
+                  Handed over
+                </Button>
+                <Button variant="outline" loading={handover.isPending} onClick={() => handover.mutate('collected')} icon={<BadgeCheck className="h-4 w-4" />}>
+                  Collected
+                </Button>
+              </>
+            ) : null}
             {isStock && asset.status === 'available' ? (
               <Button onClick={() => setAssignOpen(true)} icon={<PackageCheck className="h-4 w-4" />}>Assign</Button>
             ) : null}
@@ -129,6 +211,33 @@ export function AssetDetailPage() {
       <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
         <div className="space-y-4">
           <Card>
+            <CardHeader
+              title="Asset photo"
+              subtitle="Attached when the asset was registered or purchased"
+              action={
+                asset.photoUrl ? (
+                  <a href={asset.photoUrl} target="_blank" rel="noreferrer" className="text-[11px] font-semibold text-brand-600 hover:underline">
+                    View larger
+                  </a>
+                ) : null
+              }
+            />
+            <div className="p-4">
+              {asset.photoUrl ? (
+                <a href={asset.photoUrl} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl ring-1 ring-slate-200">
+                  <img src={asset.photoUrl} alt={`${asset.assetTypeName} (${asset.ref})`} className="max-h-72 w-full object-cover" />
+                </a>
+              ) : (
+                <div className="flex h-32 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-slate-400">
+                  <ImageIcon className="h-6 w-6" />
+                  <p className="text-[11px] font-medium">No photo yet</p>
+                  <p className="text-[10.5px]">The stock manager can add one with “Edit details”.</p>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <Card>
             <CardHeader title="Asset details" />
             <div className="grid gap-4 p-5 sm:grid-cols-2">
               <Detail label="Asset ID" value={asset.ref} />
@@ -136,6 +245,10 @@ export function AssetDetailPage() {
               <Detail label="Serial number" value={asset.serialNumber ?? '—'} mono />
               <Detail label="Condition" value={humanise(asset.condition)} />
               <Detail label="Status" value={<AssetStatusBadge status={asset.status} />} />
+              <Detail
+                label="Lifecycle"
+                value={assetLifecycleLabel({ status: asset.status, handoverStatus: asset.handoverStatus, custodyKind: asset.custodyKind })}
+              />
               <Detail label="Custody" value={isPerson ? 'Person-based' : 'Location-based'} />
               <Detail
                 label={isPerson ? 'Current holder' : 'Current location'}
@@ -175,6 +288,29 @@ export function AssetDetailPage() {
                 }
               />
             </div>
+            {query.data.attributes.length ? (
+              <div className="border-t border-slate-100 px-5 py-4">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  {asset.assetTypeName} details
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {query.data.attributes.map((a: any) => (
+                    <div key={a.id}>
+                      <p className="text-[10px] text-slate-400">{a.label}</p>
+                      <p className="text-xs font-medium text-ink">
+                        {a.value == null || a.value === ''
+                          ? '—'
+                          : a.fieldType === 'checkbox'
+                            ? a.value === 'true'
+                              ? 'Yes'
+                              : 'No'
+                            : String(a.value)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {asset.notes ? (
               <div className="border-t border-slate-100 px-5 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Notes</p>
@@ -250,6 +386,44 @@ export function AssetDetailPage() {
               </div>
             </Card>
           ) : null}
+
+          <Card>
+            <CardHeader
+              title="Releases and handovers"
+              subtitle="Who authorised the release, who issued it and how it reached the holder"
+            />
+            {query.data.releases.length === 0 ? (
+              <EmptyState
+                title="No release recorded"
+                message="A release is recorded when the asset is issued from stock."
+              />
+            ) : (
+              <div className="divide-y divide-slate-50">
+                {query.data.releases.map((r: any) => (
+                  <div key={r.id} className="px-5 py-3 text-[11px]">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-semibold text-ink">Released {shortDate(r.releasedAt)}</p>
+                      <Badge className="bg-slate-100 text-slate-600 ring-slate-200">
+                        {HANDOVER_LABELS[r.handoverStatus as keyof typeof HANDOVER_LABELS] ?? r.handoverStatus}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-slate-600">
+                      To {r.recipientName ?? r.roomName ?? 'the holder'} · issued by {r.issuedByName ?? '—'}
+                    </p>
+                    <p className="text-slate-500">Authorised by {r.authorizedName ?? '—'}</p>
+                    {r.handoverAt ? (
+                      <p className="text-slate-500">
+                        {r.handoverStatus === 'collected' ? 'Collected' : 'Handed over'} {shortDate(r.handoverAt)}
+                        {r.handoverByName ? ` · recorded by ${r.handoverByName}` : ''}
+                      </p>
+                    ) : (
+                      <p className="text-amber-700">Awaiting handover or collection.</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
 
           <Card>
             <CardHeader title="Asset history" subtitle="Every recorded change" />
@@ -395,6 +569,85 @@ export function AssetDetailPage() {
             <Textarea value={disposal.reason} onChange={(e) => setDisposal({ ...disposal, reason: e.target.value })} placeholder="Why should this asset be disposed of?" />
           </Field>
           <Callout tone="warning">Only an available asset can be proposed. An assigned asset must be returned first.</Callout>
+        </div>
+      </Modal>
+
+      <Modal
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        title="Edit asset details"
+        description="Complete the serial number, condition, photo and the fields set up for this asset type."
+        width="max-w-xl"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={saveDetails.isPending}>
+              Cancel
+            </Button>
+            <Button loading={saveDetails.isPending} onClick={() => saveDetails.mutate()}>
+              Save details
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Field label="Serial number">
+            <Input
+              value={editForm.serialNumber}
+              onChange={(e) => setEditForm({ ...editForm, serialNumber: e.target.value })}
+            />
+          </Field>
+          <Field label="Condition" required>
+            <Select value={editForm.condition} onChange={(e) => setEditForm({ ...editForm, condition: e.target.value })}>
+              <option value="new">New</option>
+              <option value="good">Good</option>
+              <option value="fair">Fair</option>
+              <option value="poor">Poor</option>
+            </Select>
+          </Field>
+          <FileField
+            value={editForm.photo}
+            onChange={(photo) => setEditForm({ ...editForm, photo })}
+            label="Asset photo"
+            hint="Take a picture or upload one · PNG, JPEG or WebP · up to 5 MB"
+          />
+          {query.data.attributes.map((a: any) => (
+            <Field key={a.id} label={a.label} required={a.required}>
+              {a.fieldType === 'select' ? (
+                <Select
+                  value={editForm.attributes[a.key] ?? ''}
+                  onChange={(e) => setEditForm({ ...editForm, attributes: { ...editForm.attributes, [a.key]: e.target.value } })}
+                >
+                  <option value="">Choose…</option>
+                  {(a.options ?? []).map((option: string) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </Select>
+              ) : a.fieldType === 'checkbox' ? (
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={editForm.attributes[a.key] === 'true'}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        attributes: { ...editForm.attributes, [a.key]: String(e.target.checked) },
+                      })
+                    }
+                  />
+                  Yes
+                </label>
+              ) : (
+                <Input
+                  type={a.fieldType === 'number' ? 'number' : a.fieldType === 'date' ? 'date' : 'text'}
+                  value={editForm.attributes[a.key] ?? ''}
+                  onChange={(e) => setEditForm({ ...editForm, attributes: { ...editForm.attributes, [a.key]: e.target.value } })}
+                />
+              )}
+            </Field>
+          ))}
+          <Field label="Notes">
+            <Textarea value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} />
+          </Field>
         </div>
       </Modal>
     </div>

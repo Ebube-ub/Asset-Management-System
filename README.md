@@ -46,7 +46,8 @@ Every seeded account uses the password **`Password123!`**.
   Data persists in `data/pglite`. The schema in `server/db/schema.sql` is standard PostgreSQL and can
   be pointed at a server (`PG`/`DATABASE_URL`) by swapping the connection in `server/db/index.ts`.
 - **Auth** — server-side sessions in the database, `httpOnly` cookie, `scrypt` password hashing.
-- **Uploads** — quotation and receipt documents stored under `uploads/` and served at `/uploads`.
+- **Uploads** — quotation and receipt documents plus asset photos stored under `uploads/` and served at
+  `/uploads`. Image uploads are type-checked (PNG/JPEG/WebP) and size-limited (5 MB) before being written.
 
 ## Layout
 
@@ -54,11 +55,14 @@ Every seeded account uses the password **`Password123!`**.
 server/
   db/schema.sql        PostgreSQL schema (Organisation, Requisition, Procurement, Asset Register, Settings)
   db/index.ts          PGlite connection, parameterised query helper, transactions
+  db/migrations.ts     idempotent migrations for existing databases, tracked in _migration
   db/seed.ts           demo data (runs only when the organisation table is empty)
   lib/auth.ts          sessions, password hashing, role guards
   lib/repo.ts          shared rules: settings, refs, history, status derivation, hierarchy
   domains/             one module per bounded context: requests, stock, quotes, finance,
-                       purchases, assets, disposals, organisation, dashboard, reports, notifications
+                       purchases, assets, assetconfig, disposals, organisation, dashboard, reports,
+                       notifications
+  lib/mailer.ts        optional email delivery (Resend or webhook) with email_log dedupe
   routes.ts            HTTP surface, one guard per action
 shared/domain.ts       vocabulary shared by client and server (statuses, weights, scoring, navigation)
 client/src/            React app: pages, layout, design-system components
@@ -66,6 +70,32 @@ client/src/            React app: pages, layout, design-system components
 
 Bounded contexts are kept separate and reference each other by ID only. Request and asset history are
 written as log rows (`request_history`, `asset_history`); nothing is rebuilt from events.
+
+## Email notifications
+
+Email is optional and configured entirely on the server — no credentials are ever sent to the browser.
+Every notice is written to `email_log` first with a deterministic dedupe key, so a repeated action never
+sends the same notice twice, and a delivery failure is recorded without rolling back the request or stock
+change it describes. When no provider is configured, messages are marked `skipped` and logged.
+
+| Variable | Purpose |
+| --- | --- |
+| `MAIL_FROM` | Verified sender, e.g. `I4nnova <Assets@i4nnova.com>` |
+| `RESEND_API_KEY` | Sends through `https://api.resend.com` (no extra dependency) |
+| `MAIL_WEBHOOK_URL` | Alternative: POST `{ from, to, subject, text }` to an internal relay |
+| `MAIL_WEBHOOK_TOKEN` | Optional bearer token for that relay |
+| `APP_URL` | Public origin used in links (default `http://127.0.0.1:5173`) |
+
+Set `RESEND_API_KEY` or `MAIL_WEBHOOK_URL` (not both). Notices cover: request submitted, received for
+review, approved, rejected, returned, resubmitted; approval requested and given; financial decision;
+purchase recorded; asset issued, handed over, collected, returned; and stock levels changed.
+
+## Database migrations
+
+`server/db/schema.sql` is the full, idempotent definition used for a new database. Changes to existing
+tables live in `server/db/migrations.ts`, applied once each and tracked in `_migration`; they only add
+columns/tables or relax a status constraint, and backfill categories from the existing `asset_type.category`
+text. Existing requests, assets and history are preserved.
 
 ## Interface behaviour
 
@@ -89,7 +119,18 @@ written as log rows (`request_history`, `asset_history`); nothing is rebuilt fro
   whose pass sends it to the stock check. A line manager's own request goes to the next line manager
   above them; staff with no manager skip review. If the reporting line changes while a request waits,
   the next action detects it, restarts the review with the new manager and records it.
-- Rejecting closes the request; there is no return for editing.
+- **Return for editing.** A team lead, line manager or approval-level holder can return a request instead
+  of rejecting it. The requester is notified, can change the justification, priority and items, then
+  resubmit; it resumes at the review or approval stage it came from. Returning records who returned it,
+  when, why, and when it was resubmitted. A returned request is never treated as rejected or closed.
+- **Group requests.** A line manager can raise one request for several team members. Each unit is
+  allocated to a person, keeps its own asset record, and the request follows the same review and
+  approval workflow. Recipients must be in the manager's own team (enforced on the server).
+- **Configurable approval levels.** Asset Configuration assigns an approval role to a category. After the
+  reporting-line review, any category role not already exercised becomes a pending approval stage; the
+  request waits until a holder of that role approves it, then moves to the stock check. A category can also
+  set a minimum role to request it, and the server rejects anyone below that level even via the API.
+- Rejecting closes the request; a returned request stays open.
 - Priority ordering (Critical → High → Medium → Low → earliest raised) in the stock check, quotation
   queue and pending approvals; parked items marked due come first.
 - No reservations; issuing is per individual item and each asset keeps its own history.
@@ -102,12 +143,24 @@ written as log rows (`request_history`, `asset_history`); nothing is rebuilt fro
   configured period; the financial executive cannot decide their own request.
 - Purchase recording with automated over-budget comparison and a prominent warning; approved amounts
   are never silently changed.
+- **Asset Configuration** — categories, asset types, type-specific fields (text, number, dropdown, date,
+  yes/no; required flags; display order) and the approval/restriction level. Removing a field retires it
+  without deleting values already captured.
+- **Stock release and handover** — issuing names the authorising person (who must differ from the issuer
+  and hold an authorising role; configurable in Settings) and records issuer, authoriser, recipient,
+  date and handover state on `asset_release`. Issuing is not collecting: the stock manager records
+  *handed over* or *collected*, and the asset lifecycle label reflects it. Returned assets go back to
+  stock and are never re-issued automatically.
+- **Asset images and attributes** — a photo can be taken or uploaded when registering, purchasing or
+  editing an asset (PNG/JPEG/WebP, 5 MB limit, type-validated). Photos show in the register, on the asset
+  page and at full size. Type-specific fields are captured per asset and shown on the asset page.
 - Asset register with custody settings per type, assignment/transfer/return confirmed by the stock
   manager, blocked re-assignment, disposal proposal → approval → completion (buyer and proceeds for
   sales and auctions).
 - Staff departure: blocked by direct reports, held assets or pending reviews; on departure records are
   preserved, sign-in is disabled, outstanding requests are cancelled and unissued items closed.
-- Settings: weights, parked review period, second approver.
+- Settings: weights, parked review period, second approver, and whether a stock release must be
+authorised.
 
 ## Acceptance scenarios (seeded)
 
@@ -144,13 +197,24 @@ The PRD lists open decisions; these are built as configurable behaviour or expli
    back for new quotations; the previous choice is cleared and a new choice sets a new approved amount.
 5. **Disposal approver independence** — not enforced. The stock manager approves; the PRD has not
    confirmed whether the approver must differ from the proposer.
-6. **Scope sign-off** — Release 1 only. Notification delivery, purchase orders, funds release,
-   goods-received checks, depreciation, barcode/QR, maintenance and automated quote collection are not
-   built (the bell shows outstanding actions you can already see, not notifications).
+6. **Scope sign-off** — Release 1 only. Purchase orders, funds release, goods-received checks,
+   depreciation, barcode/QR, maintenance and automated quote collection are not built. Email delivery is
+   implemented and enabled by environment variables; without them the bell still shows in-app activity.
 7. A staff member's own request that reaches them as the configured second approver is decided by the
    second approver (same-if-self edge case is not resolved by the PRD).
 
 ## Release 1 exclusions honoured
 
-No purchase orders, automated funds release, goods-received checks, depreciation, barcode/QR scanning,
-maintenance management, or notification delivery. Purchasing is manual; the system records the outcome.
+No purchase orders, automated funds release, goods-received checks, depreciation, barcode/QR scanning or
+maintenance management. Purchasing is manual; the system records the outcome.
+
+## Prototype feedback (27 November meeting)
+
+- Request form asks for nothing about "who it is for": staff request for themselves, admins can raise for a
+  new hire who has never signed in, and line managers can use a group request for their own team.
+- Priorities carry plain-English guidance, Medium stays the default, and High/Critical still require a
+  justification and business impact from whoever raises or escalates them.
+- Approvals → **Purchase Request** in navigation; the queue shows reporting-line reviews and category
+  approval levels separately.
+- Asset Types → **Asset Configuration** (categories, types, fields, approval and request restrictions).
+- Charts use a distinct colour per series and per status, with labels, legends and readable values.

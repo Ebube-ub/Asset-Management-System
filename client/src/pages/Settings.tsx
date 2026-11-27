@@ -184,6 +184,30 @@ export function SettingsPage() {
 
           <Card>
             <CardHeader
+              title="Stock release authorisation"
+              subtitle="Who must authorise an asset leaving stock"
+            />
+            <div className="space-y-3 p-5">
+              <Field label="Authorisation" hint="The person issuing an asset cannot authorise their own release.">
+                <Select
+                  value={query.data.stockReleaseAuthorization ?? 'required'}
+                  onChange={(e) =>
+                    save.mutate({ stockReleaseAuthorization: e.target.value as 'required' | 'not_required' })
+                  }
+                >
+                  <option value="required">Required — name an authoriser for every release</option>
+                  <option value="not_required">Not required — the issuer records the release alone</option>
+                </Select>
+              </Field>
+              <Callout tone="info">
+                Every release still records who issued it, who authorised it, the recipient, the date and the handover
+                state, whichever option is chosen.
+              </Callout>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader
               title="Second financial approver"
               subtitle="Decides the financial executive's own requests"
               action={<Scale className="h-4 w-4 text-slate-400" />}
@@ -245,8 +269,8 @@ export function SettingsPage() {
         <p className="flex items-start gap-2 text-[11px] leading-relaxed text-slate-500">
           <Settings2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
           Release 1 scope: no purchase orders, automated funds release, goods-received checks, depreciation, barcode or QR
-          scanning, maintenance management or notification delivery. Purchasing stays manual and the system records the
-          outcome.
+          scanning, or maintenance management. Purchasing stays manual and the system records the outcome. Email delivery
+          is configured on the server with environment variables (see README).
         </p>
         <p className="mt-2 flex items-start gap-2 text-[11px] leading-relaxed text-slate-400">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />

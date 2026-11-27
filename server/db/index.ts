@@ -23,6 +23,7 @@ export function initDb(): Promise<void> {
       if (!schemaPath) throw new Error('Could not locate server/db/schema.sql');
       const sql = fs.readFileSync(schemaPath, 'utf8');
       await pg.exec(sql);
+      await pg.exec('create table if not exists _migration (id text primary key, applied_at timestamptz not null default now())');
     })();
   }
   return ready;
@@ -34,6 +35,11 @@ export type Params = unknown[];
 export async function query<T = Record<string, unknown>>(sql: string, params: Params = []): Promise<T[]> {
   const result = await pg.query<T>(sql, params as never[]);
   return result.rows;
+}
+
+/** Run one or more statements with no bound parameters (schema and migrations). */
+export async function exec(sql: string): Promise<void> {
+  await pg.exec(sql);
 }
 
 export async function one<T = Record<string, unknown>>(sql: string, params: Params = []): Promise<T | null> {

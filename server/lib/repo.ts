@@ -33,13 +33,15 @@ export type AppSettings = {
   parkedReviewDays: number;
   secondApproverId: string | null;
   secondApproverName: string | null;
+  stockReleaseAuthorization: 'required' | 'not_required';
   weights: ScoringWeights;
 };
 
 export async function getSettings(): Promise<AppSettings> {
-  const [days, approver] = await Promise.all([
+  const [days, approver, releaseAuth] = await Promise.all([
     getSetting('parked_review_days', '7'),
     getSetting('second_approver_id', ''),
+    getSetting('stock_release_authorization', 'required'),
   ]);
   const weights = await activeWeights();
   let approverName: string | null = null;
@@ -51,6 +53,7 @@ export async function getSettings(): Promise<AppSettings> {
     parkedReviewDays: Number(days) || 7,
     secondApproverId: approver || null,
     secondApproverName: approverName,
+    stockReleaseAuthorization: releaseAuth === 'not_required' ? 'not_required' : 'required',
     weights,
   };
 }
@@ -126,7 +129,7 @@ export async function recomputeRequestStatus(requestId: string, byStaffId?: stri
     requestId,
   ]);
   if (!request) return;
-  if (['raised', 'under_review', 'rejected', 'cancelled'].includes(request.status)) return;
+  if (['raised', 'under_review', 'returned', 'awaiting_approval', 'rejected', 'cancelled'].includes(request.status)) return;
   const items = await query<{ status: ItemStatus }>(
     `select ri.status from request_item ri
        join request_line rl on rl.id = ri.request_line_id
@@ -211,6 +214,13 @@ export async function requestAccess(user: CurrentUser, requestId: string): Promi
     [requestId],
   );
   if (!request) return null;
+  // A member of a group request can always see the line addressed to them.
+  const isGroupRecipient = !!(await one(
+    `select 1 from request_item ri
+       join request_line rl on rl.id = ri.request_line_id
+      where rl.request_id = $1 and ri.recipient_staff_id = $2 limit 1`,
+    [requestId, user.id],
+  ));
   const isAdmin = user.roles.includes('administrator');
   const isStock = user.roles.includes('stock_manager');
   const isFinance = user.roles.includes('financial_executive');
@@ -223,7 +233,8 @@ export async function requestAccess(user: CurrentUser, requestId: string): Promi
   }
   const canReview = isReviewer && request.status === 'under_review';
   return {
-    canView: isAdmin || isStock || isFinance || isRequester || isRecipient || isReviewer || isInChain,
+    canView:
+      isAdmin || isStock || isFinance || isRequester || isRecipient || isReviewer || isInChain || isGroupRecipient,
     isRequester,
     isRecipient,
     isReviewer,

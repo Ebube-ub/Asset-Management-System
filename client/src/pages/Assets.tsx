@@ -10,6 +10,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  FileField,
   Input,
   Modal,
   Pagination,
@@ -22,7 +23,7 @@ import {
   useToast,
 } from '../components/ui';
 import { AssetStatusBadge } from '../components/badges';
-import { ASSET_STATUS_LABELS } from '@shared/domain';
+import { ASSET_STATUS_LABELS, assetLifecycleLabel } from '@shared/domain';
 import { shortDate } from '../lib/format';
 
 export function AssetsPage() {
@@ -40,6 +41,8 @@ export function AssetsPage() {
   const [dir, setDir] = useState<'asc' | 'desc'>('desc');
   const [registerOpen, setRegisterOpen] = useState(params.get('register') === '1');
   const [form, setForm] = useState({ assetTypeId: '', serialNumber: '', condition: 'good', holderStaffId: '', roomId: '', notes: '' });
+  const [photo, setPhoto] = useState<{ url: string; name: string } | null>(null);
+  const [attributes, setAttributes] = useState<Record<string, string>>({});
 
   const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<any>('/meta') });
   const query = useQuery({
@@ -64,6 +67,8 @@ export function AssetsPage() {
       push(`Asset ${res.ref} registered.`, 'success');
       setRegisterOpen(false);
       setForm({ assetTypeId: '', serialNumber: '', condition: 'good', holderStaffId: '', roomId: '', notes: '' });
+      setPhoto(null);
+      setAttributes({});
       void qc.invalidateQueries({ queryKey: ['assets'] });
       void qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
@@ -141,6 +146,7 @@ export function AssetsPage() {
             <Table>
               <thead>
                 <tr>
+                  <Th className="w-12">Photo</Th>
                   <Th onClick={() => toggleSort('ref')}><span className="inline-flex items-center gap-1">Asset <ArrowDownUp className="h-3 w-3" /></span></Th>
                   <Th onClick={() => toggleSort('name')}>Type</Th>
                   <Th>Serial number</Th>
@@ -154,6 +160,15 @@ export function AssetsPage() {
                 {query.data.rows.map((a: any) => (
                   <tr key={a.id} className="cursor-pointer transition-colors hover:bg-slate-50" onClick={() => navigate(`/assets/${a.id}`)}>
                     <Td>
+                      {a.photoUrl ? (
+                        <img src={a.photoUrl} alt={`${a.assetTypeName} photo`} className="h-9 w-9 rounded-lg object-cover ring-1 ring-slate-200" />
+                      ) : (
+                        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-[9px] font-medium text-slate-400">
+                          No photo
+                        </span>
+                      )}
+                    </Td>
+                    <Td>
                       <Link to={`/assets/${a.id}`} className="text-xs font-semibold text-brand-600 hover:underline">{a.ref}</Link>
                     </Td>
                     <Td>
@@ -162,7 +177,12 @@ export function AssetsPage() {
                     </Td>
                     <Td className="font-mono text-[11px] text-slate-600">{a.serialNumber ?? '—'}</Td>
                     <Td className="text-xs capitalize text-slate-600">{a.condition}</Td>
-                    <Td><AssetStatusBadge status={a.status} /></Td>
+                    <Td>
+                      <AssetStatusBadge status={a.status} />
+                      <p className="mt-0.5 text-[10px] text-slate-400">
+                        {assetLifecycleLabel({ status: a.status, handoverStatus: a.handoverStatus, custodyKind: a.custodyKind })}
+                      </p>
+                    </Td>
                     <Td className="text-xs text-slate-600">{a.holderName ?? a.roomName ?? <span className="text-slate-400">In stock</span>}</Td>
                     <Td className="text-[11px] text-slate-500">{shortDate(a.registeredAt)}</Td>
                   </tr>
@@ -189,6 +209,8 @@ export function AssetsPage() {
               holderStaffId: selectedType?.custodyKind === 'person' ? form.holderStaffId || null : null,
               roomId: selectedType?.custodyKind === 'location' ? form.roomId || null : null,
               notes: form.notes || null,
+              photoUrl: photo?.url ?? null,
+              attributes,
             })}>
               Register asset
             </Button>
@@ -197,16 +219,58 @@ export function AssetsPage() {
       >
         <div className="space-y-3">
           <Field label="Asset type" required>
-            <Select value={form.assetTypeId} onChange={(e) => setForm({ ...form, assetTypeId: e.target.value, holderStaffId: '', roomId: '' })}>
-              <option value="">Select an asset type…</option>
+            <Select
+              value={form.assetTypeId}
+              onChange={(e) => {
+                setForm({ ...form, assetTypeId: e.target.value, holderStaffId: '', roomId: '' });
+                setAttributes({});
+              }}
+            >
+              <option value="">Choose an asset type…</option>
               {(meta.data?.assetTypes ?? []).map((t: any) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </Select>
           </Field>
+          <FileField
+            value={photo}
+            onChange={setPhoto}
+            label="Asset photo"
+            hint="Take a picture or upload one · PNG, JPEG or WebP · up to 5 MB"
+          />
           <Field label="Serial number" hint="Optional for low-value items; every item still gets its own asset ID.">
             <Input value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} />
           </Field>
+          {(selectedType?.fields ?? []).map((field: any) => (
+            <Field key={field.id} label={field.label} required={field.required}>
+              {field.fieldType === 'select' ? (
+                <Select
+                  value={attributes[field.key] ?? ''}
+                  onChange={(e) => setAttributes({ ...attributes, [field.key]: e.target.value })}
+                >
+                  <option value="">Choose…</option>
+                  {(field.options ?? []).map((option: string) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </Select>
+              ) : field.fieldType === 'checkbox' ? (
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={attributes[field.key] === 'true'}
+                    onChange={(e) => setAttributes({ ...attributes, [field.key]: String(e.target.checked) })}
+                  />
+                  Yes
+                </label>
+              ) : (
+                <Input
+                  type={field.fieldType === 'number' ? 'number' : field.fieldType === 'date' ? 'date' : 'text'}
+                  value={attributes[field.key] ?? ''}
+                  onChange={(e) => setAttributes({ ...attributes, [field.key]: e.target.value })}
+                />
+              )}
+            </Field>
+          ))}
           <Field label="Condition" required>
             <Select value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}>
               <option value="new">New</option>

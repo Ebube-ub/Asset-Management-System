@@ -24,6 +24,8 @@ export const ALL_ROLES: Role[] = [
 export type RequestStatus =
   | 'raised'
   | 'under_review'
+  | 'returned'
+  | 'awaiting_approval'
   | 'rejected'
   | 'in_progress'
   | 'fulfilled'
@@ -48,8 +50,10 @@ export type CustodyKind = 'person' | 'location';
 export type DisposalMethod = 'sale' | 'auction' | 'scrap' | 'donation' | 'recycling';
 
 export const REQUEST_STATUS_LABELS: Record<RequestStatus, string> = {
-  raised: 'Raised',
+  raised: 'Submitted',
   under_review: 'Under review',
+  returned: 'Returned for editing',
+  awaiting_approval: 'Awaiting approval',
   rejected: 'Rejected',
   in_progress: 'In progress',
   fulfilled: 'Fulfilled',
@@ -76,6 +80,35 @@ export const PRIORITY_LABELS: Record<Priority, string> = {
   low: 'Low',
 };
 
+/**
+ * Plain-English guidance for the four PRD priorities. Medium stays the default;
+ * the wording follows how i4Trak describes urgency to the people raising work.
+ */
+export const PRIORITY_HELP: Record<Priority, { summary: string; when: string; response: string }> = {
+  critical: {
+    summary: 'Work has stopped, or there is a safety, security or legal exposure.',
+    when: 'Someone cannot do their job at all, a site is unsafe, or a deadline set by law or a customer is at risk today.',
+    response: 'Handled first, ahead of every other request.',
+  },
+  high: {
+    summary: 'A team or a key deliverable is seriously affected.',
+    when: 'The workaround is costly or short-lived, a deadline this week is at risk, or several people are blocked.',
+    response: 'Handled before routine work.',
+  },
+  medium: {
+    summary: 'The normal, planned need — this is the default.',
+    when: 'The item is needed to do the job properly, with a workaround available for a few days.',
+    response: 'Handled in submission order.',
+  },
+  low: {
+    summary: 'A convenience or an improvement, not a blocker.',
+    when: 'The item is a spare, a nice-to-have, or a replacement with no immediate operational impact.',
+    response: 'Handled when higher-priority work is clear.',
+  },
+};
+
+export const DEFAULT_PRIORITY: Priority = 'medium';
+
 export const PRIORITY_ORDER: Record<Priority, number> = {
   critical: 0,
   high: 1,
@@ -84,11 +117,42 @@ export const PRIORITY_ORDER: Record<Priority, number> = {
 };
 
 export const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {
-  available: 'Available',
+  available: 'Available in stock',
   assigned: 'Assigned',
   awaiting_disposal: 'Awaiting disposal approval',
   disposed: 'Disposed',
 };
+
+/** How an assigned asset reached its holder. Issued is not the same as collected. */
+export type HandoverStatus = 'awaiting_handover' | 'handed_over' | 'collected' | 'in_use' | 'returned';
+
+export const HANDOVER_LABELS: Record<HandoverStatus, string> = {
+  awaiting_handover: 'Awaiting handover',
+  handed_over: 'Handed over',
+  collected: 'Collected',
+  in_use: 'In use',
+  returned: 'Returned to stock',
+};
+
+/**
+ * One readable state per asset. The stored status stays the source of truth for
+ * custody; the handover state adds how the item physically changed hands.
+ */
+export function assetLifecycleLabel(asset: {
+  status: string;
+  handoverStatus?: string | null;
+  custodyKind?: string | null;
+}): string {
+  if (asset.status === 'available') return 'Available in stock';
+  if (asset.status === 'awaiting_disposal') return 'Awaiting disposal approval';
+  if (asset.status === 'disposed') return 'Disposed';
+  if (asset.handoverStatus === 'returned') return 'Returned to stock';
+  if (asset.handoverStatus === 'handed_over') return 'Handed over';
+  if (asset.handoverStatus === 'collected') return 'Collected';
+  if (asset.handoverStatus === 'in_use') return 'Currently in use';
+  if (asset.handoverStatus === 'awaiting_handover') return 'Issued — awaiting handover';
+  return asset.custodyKind === 'location' ? 'Assigned to location' : 'Assigned';
+}
 
 export const DISPOSAL_METHOD_LABELS: Record<DisposalMethod, string> = {
   sale: 'Sale',
@@ -131,7 +195,7 @@ export const NAV_PERMISSIONS = {
   staff: ['administrator'] as Role[],
   organisation: ['administrator'] as Role[],
   rooms: ['administrator'] as Role[],
-  'asset-types': ['administrator', 'stock_manager'] as Role[],
+  'asset-configuration': ['administrator'] as Role[],
   reports: ['administrator', 'stock_manager', 'financial_executive', 'line_manager'] as Role[],
   settings: ['administrator'] as Role[],
 } satisfies Record<string, Role[] | '*'>;
@@ -166,6 +230,8 @@ export const PRIORITY_BADGE: Record<Priority, string> = {
 export const REQUEST_STATUS_BADGE: Record<RequestStatus, string> = {
   raised: 'bg-slate-100 text-slate-700 ring-slate-200',
   under_review: 'bg-amber-50 text-amber-700 ring-amber-200',
+  returned: 'bg-orange-50 text-orange-700 ring-orange-200',
+  awaiting_approval: 'bg-violet-50 text-violet-700 ring-violet-200',
   rejected: 'bg-red-50 text-red-700 ring-red-200',
   in_progress: 'bg-blue-50 text-blue-700 ring-blue-200',
   fulfilled: 'bg-emerald-50 text-emerald-700 ring-emerald-200',

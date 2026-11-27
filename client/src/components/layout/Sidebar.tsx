@@ -45,7 +45,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
     title: 'Requests',
     items: [
       { key: 'requests', label: 'Requests', to: '/requests', icon: <ClipboardList className="h-[17px] w-[17px]" /> },
-      { key: 'approvals', label: 'Approvals', to: '/approvals', icon: <ClipboardCheck className="h-[17px] w-[17px]" /> },
+      { key: 'approvals', label: 'Purchase Request', to: '/approvals', icon: <ClipboardCheck className="h-[17px] w-[17px]" /> },
     ],
   },
   {
@@ -80,7 +80,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
       { key: 'staff', label: 'Staff Management', to: '/staff', icon: <Users className="h-[17px] w-[17px]" /> },
       { key: 'organisation', label: 'Organisation', to: '/organisation', icon: <Building2 className="h-[17px] w-[17px]" /> },
       { key: 'rooms', label: 'Rooms', to: '/rooms', icon: <DoorOpen className="h-[17px] w-[17px]" /> },
-      { key: 'asset-types', label: 'Asset Types', to: '/asset-types', icon: <Tags className="h-[17px] w-[17px]" /> },
+      { key: 'asset-configuration', label: 'Asset Configuration', to: '/asset-configuration', icon: <Tags className="h-[17px] w-[17px]" /> },
     ],
   },
   {

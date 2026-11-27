@@ -110,12 +110,15 @@ export function DashboardPage() {
   }));
   const maxPriority = Math.max(1, ...priorityData.map((p) => p.count));
 
+  // A distinct hue per status so a slice never reads as another series on the page.
   const assetSplit = [
     { name: 'Available', value: d.metrics.assets.available, color: '#10B981' },
-    { name: 'Assigned', value: d.metrics.assets.assigned, color: '#1769AA' },
+    { name: 'Assigned', value: d.metrics.assets.assigned, color: '#4F46E5' },
     { name: 'Awaiting disposal', value: d.metrics.assets.awaitingDisposal, color: '#F59E0B' },
     { name: 'Disposed', value: d.metrics.assets.disposed, color: '#94A3B8' },
   ].filter((s) => s.value > 0);
+
+  const CATEGORY_TONES = ['blue', 'green', 'violet', 'amber', 'red'] as const;
 
   const quickActions = buildQuickActions({ isAdmin, isStock, isFinance, isManager, navigate });
 
@@ -395,7 +398,10 @@ export function DashboardPage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-medium text-ink">{c.name}</p>
-                      <Progress value={(c.count / Math.max(1, d.topCategories[0].count)) * 100} tone={i === 0 ? 'blue' : i === 1 ? 'green' : 'violet'} />
+                      <Progress
+                        value={(c.count / Math.max(1, d.topCategories[0].count)) * 100}
+                        tone={CATEGORY_TONES[i % CATEGORY_TONES.length]}
+                      />
                     </div>
                     <span className="text-xs font-semibold text-slate-600">{c.count}</span>
                   </div>
@@ -558,7 +564,7 @@ function buildQuickActions({
     ];
   }
   return [
-    { label: 'New request', copy: 'Ask for equipment', icon: <Plus className="h-4 w-4" />, color: 'bg-brand-500', to: '/requests/new' },
+    { label: 'New request', copy: 'Request an item', icon: <Plus className="h-4 w-4" />, color: 'bg-brand-500', to: '/requests/new' },
     { label: 'My requests', copy: 'Track progress', icon: <ClipboardList className="h-4 w-4" />, color: 'bg-emerald-600', to: '/requests?scope=mine' },
     { label: 'My assets', copy: 'What you hold', icon: <Boxes className="h-4 w-4" />, color: 'bg-orange-500', to: '/assets?scope=mine' },
     { label: 'Return an asset', copy: 'Request a return', icon: <RefreshCw className="h-4 w-4" />, color: 'bg-violet-500', to: '/returns' },

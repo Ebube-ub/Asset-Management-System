@@ -20,16 +20,20 @@ import {
   approvalsQueue,
   createRequest,
   createRequestSchema,
+  editRequestSchema,
   getRequest,
   listRequests,
+  resubmitRequest,
   reviewRequest,
   reviewSchema,
+  updateReturnedRequest,
 } from './domains/requests.js';
 import {
   closeItem,
   issueItems,
   requoteItem,
   sendToQuotations,
+  stockLevels,
   stockQueue,
   stockSummary,
 } from './domains/stock.js';
@@ -39,6 +43,7 @@ import { awaitingPurchase, purchaseList, purchaseSchema, recordPurchase } from '
 import {
   assetTypesList,
   assignAsset,
+  confirmHandover,
   confirmMovement,
   getAsset,
   listAssets,
@@ -47,7 +52,16 @@ import {
   registerAsset,
   registerAssetSchema,
   requestMovement,
+  updateAsset,
+  updateAssetSchema,
 } from './domains/assets.js';
+import {
+  configurationOverview,
+  createAssetTypeRecord,
+  createCategory,
+  updateAssetTypeRecord,
+  updateCategory,
+} from './domains/assetconfig.js';
 import {
   completeDisposal,
   decideDisposal,
@@ -56,7 +70,6 @@ import {
   proposeSchema,
 } from './domains/disposals.js';
 import {
-  createAssetType,
   createRoom,
   createStaff,
   organisationOverview,
@@ -65,7 +78,6 @@ import {
   rooms,
   staffDetail,
   staffDirectory,
-  updateAssetType,
   updateRoom,
   updateStaff,
 } from './domains/organisation.js';
@@ -134,8 +146,21 @@ api.get(
   asyncHandler(async (req, res) => {
     const settings = await getSettings();
     const roomsList = await query(`select id, name, building, floor from room where active = true order by name`);
-    const types = await query(
-      `select id, name, custody_kind as "custodyKind", category from asset_type where active = true order by name`,
+    const types = await query<Record<string, unknown>>(
+      `select t.id, t.name, t.custody_kind as "custodyKind", t.category,
+              t.category_id as "categoryId", c.approval_role as "approvalRole",
+              c.min_request_role as "minRequestRole"
+         from asset_type t left join asset_category c on c.id = t.category_id
+        where t.active = true order by t.name`,
+    );
+    const fields = await query<Record<string, unknown>>(
+      `select id, asset_type_id as "assetTypeId", key, label, field_type as "fieldType", options,
+              required, position
+         from asset_attribute where active = true order by position, label`,
+    );
+    const categories = await query(
+      `select id, name, approval_role as "approvalRole", min_request_role as "minRequestRole"
+         from asset_category where active = true order by name`,
     );
     const staff = await query(
       `select id, name, email, job_title as "jobTitle", manager_id as "managerId", first_signed_in_at as "firstSignedInAt"
@@ -147,13 +172,18 @@ api.get(
     const isSecond = settings.secondApproverId === req.user!.id;
     res.json({
       rooms: roomsList,
-      assetTypes: types,
+      assetTypes: types.map((t) => ({
+        ...t,
+        fields: fields.filter((f) => f.assetTypeId === t.id),
+      })),
+      assetCategories: categories,
       staff,
       vendors: vendors.map((v) => v.vendor_name),
       settings: {
         parkedReviewDays: settings.parkedReviewDays,
         weights: settings.weights,
         secondApproverName: settings.secondApproverName,
+        stockReleaseAuthorization: settings.stockReleaseAuthorization,
       },
       roles: ALL_ROLES,
       isSecondApprover: isSecond,
@@ -242,6 +272,24 @@ api.post(
   }),
 );
 
+// The requester edits a returned request, then resubmits it into the workflow.
+api.patch(
+  '/requests/:id',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const input = parseBody(editRequestSchema, req.body);
+    res.json(await updateReturnedRequest(req.user!, req.params.id, input));
+  }),
+);
+
+api.post(
+  '/requests/:id/resubmit',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json(await resubmitRequest(req.user!, req.params.id));
+  }),
+);
+
 api.get(
   '/approvals',
   requireAuth,
@@ -257,7 +305,7 @@ api.get(
   '/stock',
   requireRoles('stock_manager', 'administrator'),
   asyncHandler(async (_req, res) => {
-    res.json({ ...(await stockQueue()), summary: await stockSummary() });
+    res.json({ ...(await stockQueue()), summary: await stockSummary(), levels: (await stockLevels()).rows });
   }),
 );
 
@@ -410,12 +458,30 @@ api.post(
   }),
 );
 
+api.patch(
+  '/assets/:id',
+  requireRoles('stock_manager', 'administrator'),
+  asyncHandler(async (req, res) => {
+    const input = parseBody(updateAssetSchema, req.body);
+    res.json(await updateAsset(req.user!, req.params.id, input));
+  }),
+);
+
 api.post(
   '/assets/:id/assign',
   requireRoles('stock_manager', 'administrator'),
   asyncHandler(async (req, res) => {
     const input = parseBody(movementSchema, req.body);
     res.json(await assignAsset(req.user!, req.params.id, input));
+  }),
+);
+
+// Record that an issued asset was physically handed over or collected.
+api.post(
+  '/assets/:id/handover',
+  requireRoles('stock_manager', 'administrator'),
+  asyncHandler(async (req, res) => {
+    res.json(await confirmHandover(req.user!, req.params.id, req.body));
   }),
 );
 
@@ -587,11 +653,38 @@ api.get(
   }),
 );
 
+// ------------------------------------------------------------------
+// Asset Configuration: categories, types, fields and approval level
+// ------------------------------------------------------------------
+api.get(
+  '/asset-configuration',
+  requireRoles('administrator', 'stock_manager'),
+  asyncHandler(async (_req, res) => {
+    res.json(await configurationOverview());
+  }),
+);
+
+api.post(
+  '/asset-categories',
+  requireRoles('administrator'),
+  asyncHandler(async (req, res) => {
+    res.status(201).json(await createCategory(req.body));
+  }),
+);
+
+api.patch(
+  '/asset-categories/:id',
+  requireRoles('administrator'),
+  asyncHandler(async (req, res) => {
+    res.json(await updateCategory(req.params.id, req.body));
+  }),
+);
+
 api.post(
   '/asset-types',
   requireRoles('administrator'),
   asyncHandler(async (req, res) => {
-    res.status(201).json(await createAssetType(req.body));
+    res.status(201).json(await createAssetTypeRecord(req.body));
   }),
 );
 
@@ -599,7 +692,7 @@ api.patch(
   '/asset-types/:id',
   requireRoles('administrator'),
   asyncHandler(async (req, res) => {
-    res.json(await updateAssetType(req.params.id, req.body));
+    res.json(await updateAssetTypeRecord(req.params.id, req.body));
   }),
 );
 
@@ -659,6 +752,7 @@ api.put(
           .optional(),
         parkedReviewDays: z.coerce.number().int().min(1).max(90).optional(),
         secondApproverId: z.string().uuid().nullable().optional(),
+        stockReleaseAuthorization: z.enum(['required', 'not_required']).optional(),
       }),
       req.body,
     );
@@ -691,6 +785,9 @@ api.put(
     }
     if (input.parkedReviewDays !== undefined) {
       await setSetting('parked_review_days', String(input.parkedReviewDays));
+    }
+    if (input.stockReleaseAuthorization !== undefined) {
+      await setSetting('stock_release_authorization', input.stockReleaseAuthorization);
     }
     if (input.secondApproverId !== undefined) {
       if (input.secondApproverId === req.user!.id) {
